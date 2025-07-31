@@ -472,269 +472,155 @@ local Sections = { fooniabf = Tabs.Harvest:AddSection("Auto Hervest V2") }
 
 local Options = Fluent.Options
 
-local mutations = {
-    'Wet', 'Windstruck', 'Moonlit', 'Chilled', 'Choc', 'Pollinated', 'Sandy', 'Clay', 'Verdant',
-    'Bloodlit', 'Twisted', 'Drenched', 'HoneyGlazed', 'Cloudtouched', 'Frozen', 'Tempestuous',
-    'Ceramic', 'Friendbound', 'Sundried', 'Aurora', 'Shocked', 'Celestial', 'Dawnbound',
-    'Burnt', 'Static', 'Amber', 'Cooked', 'Chakra', 'CorruptChakra', 'Tranquil', 'OldAmber',
-    'Corrupt', 'Zombified', 'HarmonisedChakra', 'HarmonisedFoxfireChakra', 'AncientAmber',
-    'FoxfireChakra', 'CorruptFoxfireChakra', 'Paradisal', 'Disco', 'Heavenly', 'Plasma',
-    'Fried', 'Molten', 'Subzero', 'Blitzshock', 'Infected', 'Jackpot', 'Radioactive', 'Alienlike',
-    'Galactic', 'Touchdown', 'Meteoric', 'Voidtouched', 'Wiltproof', 'Toxic', 'Eclipsed',
-    'Enlightened', 'Cosmic', 'Equinox'
-}
-local variants = {'Normal', 'Gold', 'Rainbow'}
-
-local AutoHarvestToggle = Tabs.Harvest:AddToggle("AutoHarvestV1", {
+local AutoHarvestToggle = Tabs.Harvest:AddToggle("autoharvest", {
     Title = "Auto Harvest V2",
     Default = false
 })
 
-local MutationsDropdown = Tabs.Harvest:AddDropdown("MutationSelect", {
-    Title = "Select Mutations",
-    Values = mutations,
+local MutationDropdown = Tabs.Harvest:AddDropdown("mutations", {
+    Title = "Mutations",
+    Values = {
+        'Wet', 'Chilled', 'Chocolate', 'Moonlit', 'Pollinated', 'Burnt', 'Cooked', 'Honey Glazed',
+        'Plasma', 'Heavenly', 'Frozen', 'Golden', 'Zombified', 'Molten', 'Rainbow', 'Shocked',
+        'Celestial', 'Disco', 'Voidtouched', 'Dawnbound', 'Windstruck', 'Twisted', 'Verdant',
+        'Sundried', 'Aurora', 'Drenched', 'Sandy', 'Clay', 'Tempestuous', 'Amber', 'AncientAmber',
+        'OldAmber', 'Friendbound', 'Infected', 'Ceramic', 'Bloodlit', 'Static', 'Chakra',
+        'CorruptChakra', 'Tranquil', 'Corrupt', 'HarmonisedChakra', 'HarmonisedFoxfireChakra',
+        'FoxfireChakra', 'CorruptFoxfireChakra', 'Paradisal', 'Subzero', 'Blitzshock', 'Jackpot',
+        'Radioactive', 'Alienlike', 'Galactic', 'Touchdown', 'Meteoric', 'Wiltproof', 'Toxic',
+        'Eclipsed', 'Enlightened', 'Cosmic', 'Equinox'
+    },
     Multi = true,
     Default = {}
 })
 
-local VariantsDropdown = Tabs.Harvest:AddDropdown("VariantSelect", {
-    Title = "Select Variants",
-    Values = variants,
+local VariantDropdown = Tabs.Harvest:AddDropdown("variants", {
+    Title = "Variants",
+    Values = {'Normal', 'Gold', 'Rainbow'},
     Multi = true,
     Default = {}
 })
 
-local function getPlayerFarm()
-    local players = game:GetService("Players")
-    local player = players.LocalPlayer
-    for _, f in ipairs(workspace.Farm:GetChildren()) do
-        if f:FindFirstChild("Important") and f.Important:FindFirstChild("Data") and f.Important.Data:FindFirstChild("Owner") then
-            if f.Important.Data.Owner.Value == player.Name then
-                return f
-            end
-        end
-    end
-    return nil
-end
-
-local function getPlantNames(farm)
-    local plantNames = {}
-    local seen = {}
-    local plantsPhysical = farm.Important:FindFirstChild("Plants_Physical")
-    if plantsPhysical then
-        for _, plant in ipairs(plantsPhysical:GetChildren()) do
-            if not seen[plant.Name] then
-                table.insert(plantNames, plant.Name)
-                seen[plant.Name] = true
-            end
-        end
-    end
-    return plantNames
-end
-
-local pfarm = getPlayerFarm()
-local pnames = getPlantNames(pfarm)
-local PlantsDropdown = Tabs.Harvest:AddDropdown("PlantSelect", {
-    Title = "Select Plants",
-    Values = pnames,
-    Multi = true,
-    Default = {}
-})
-
-Tabs.Harvest:AddButton({
-    Title = "Update Plant List",
-    Callback = function()
-        local farm = getPlayerFarm()
-        if not farm then
-            Fluent:Notify({
-                Title = "Error",
-                Content = "Could not find your farm.",
-                Duration = 5
-            })
-            return
-        end
-        local currentSelections = Options.PlantSelect.Value
-        local newPlantNames = getPlantNames(farm)
-        PlantsDropdown.Values = newPlantNames
-        local newSelections = {}
-        for plant, selected in pairs(currentSelections) do
-            if selected and table.find(newPlantNames, plant) then
-                newSelections[plant] = true
-            end
-        end
-        PlantsDropdown:SetValue(newSelections)
-        Fluent:Notify({
-            Title = "Update",
-            Content = "Plant list updated.",
-            Duration = 3
-        })
-    end
-})
-
-
-
-local ModeDropdown = Tabs.Harvest:AddDropdown("FilterMode", {
-    Title = "Mode",
-    Values = {"Whitelist", "Blacklist"},
-    Multi = false,
-    Default = "Whitelist"
-})
-
-local WeightModeDropdown = Tabs.Harvest:AddDropdown("WeightMode", {
-    Title = "Weight Mode",
-    Values = {"Below", "Above"},
-    Multi = false,
-    Default = "Below"
-})
-
-local WeightSlider = Tabs.Harvest:AddSlider("WeightSlider", {
-    Title = "Weight",
-    Default = 100,
+local MinWeightSlider = Tabs.Harvest:AddSlider("minweight", {
+    Title = "Min Weight",
+    Default = 0,
     Min = 0,
-    Max = 1000,
+    Max = 9999,
     Rounding = 0
 })
 
-local SpeedModeDropdown = Tabs.Harvest:AddDropdown("SpeedMode", {
-    Title = "Speed Mode",
-    Values = {"Slow", "Normal", "Fast", "Super", "Hyper"},
-    Multi = false,
-    Default = "Normal"
+local MaxWeightSlider = Tabs.Harvest:AddSlider("maxweight", {
+    Title = "Max Weight",
+    Default = 9999,
+    Min = 0,
+    Max = 9999,
+    Rounding = 0
 })
 
+local HarvestSpeedSlider = Tabs.Harvest:AddSlider("speed", {
+    Title = "Speed",
+    Default = 0.1,
+    Min = 0.01,
+    Max = 2,
+    Rounding = 2
+})
 
-
-local speedDelays = {
-    Slow = 1,
-    Normal = 0.5,
-    Fast = 0.3,
-    Super = 0.1,
-    Hyper = 0
-}
-
-
-AutoHarvestToggle:OnChanged(function(value)
-    if value then
-        local farm = getPlayerFarm()
-        if not farm then
-            Fluent:Notify({
-                Title = "Error",
-                Content = "Could not find your farm.",
-                Duration = 10
-            })
-            Options.AutoHarvestV1:SetValue(false)
-            return
+AutoHarvestToggle:OnChanged(function(state)
+    if state then
+        local selectedMutations = {}
+        for mutation, selected in pairs(Options.mutations.Value) do
+            if selected then
+                table.insert(selectedMutations, mutation)
+            end
         end
-        local plantNames = getPlantNames(farm)
-        PlantsDropdown.Values = plantNames
-        Fluent:Notify({
-            Title = "Auto Harvest",
-            Content = "Auto harvesting started.",
-            Duration = 0
-        })
+        if table.find(selectedMutations, "Chakra") and table.find(selectedMutations, "Tranquil") then
+            Fluent:Notify({
+                Title = "Easter Egg",
+                Content = "You found the easter egg! Helped by filipp999, Vuks baby",
+                Duration = 5
+            })
+        end
         task.spawn(function()
-            while Options.AutoHarvestV1.Value do
-                local selectedMutations = {}
-                for mutation, state in pairs(Options.MutationSelect.Value) do
-                    if state then
-                        table.insert(selectedMutations, mutation)
+            local players = game:GetService("Players")
+            local player = players.LocalPlayer
+            local replicatedStorage = game:GetService("ReplicatedStorage")
+            local byteNetReliable = replicatedStorage:WaitForChild("ByteNetReliable")
+            local buffer = buffer.fromstring("\1\1\0\1")
+            local farm = nil
+            for _, f in ipairs(workspace.Farm:GetChildren()) do
+                if f:FindFirstChild("Important") and f.Important:FindFirstChild("Data") and f.Important.Data:FindFirstChild("Owner") then
+                    if f.Important.Data.Owner.Value == player.Name then
+                        farm = f
+                        break
                     end
                 end
+            end
+            if not farm then
+                warn("Could not find your farm.")
+                Options.autoharvest:SetValue(false)
+                return
+            end
+            while Options.autoharvest.Value do
+                local minWeight = Options.minweight.Value or 0
+                local maxWeight = Options.maxweight.Value or 9999
+                local speed = Options.speed.Value or 0.1
                 local selectedVariants = {}
-                for variant, state in pairs(Options.VariantSelect.Value) do
-                    if state then
+                for variant, selected in pairs(Options.variants.Value) do
+                    if selected then
                         table.insert(selectedVariants, variant)
                     end
                 end
-                local selectedPlants = {}
-                for plant, state in pairs(Options.PlantSelect.Value) do
-                    if state then
-                        table.insert(selectedPlants, plant)
-                    end
-                end
-                local mode = Options.FilterMode.Value
-                local weightMode = Options.WeightMode.Value
-                local weightValue = Options.WeightSlider.Value
-                local speedMode = Options.SpeedMode.Value
-                local speed = speedDelays[speedMode] or 0.5
-
                 local plantsPhysical = farm.Important:FindFirstChild("Plants_Physical")
-                if not plantsPhysical then break end
-
+                if not plantsPhysical then
+                    warn("Could not find Plants_Physical.")
+                    Options.autoharvest:SetValue(false)
+                    return
+                end
                 for _, plant in ipairs(plantsPhysical:GetChildren()) do
-                    if not Options.AutoHarvestV1.Value then break end
-
-                    local plantNameMatches = true
-                    if #selectedPlants > 0 then
-                        if mode == "Whitelist" then
-                            plantNameMatches = table.find(selectedPlants, plant.Name) ~= nil
-                        elseif mode == "Blacklist" then
-                            plantNameMatches = table.find(selectedPlants, plant.Name) == nil
-                        end
-                    end
-                    if not plantNameMatches then continue end
-
-                    local fruits = {}
+                    if not Options.autoharvest.Value then break end
                     local fruitsFolder = plant:FindFirstChild("Fruits")
                     if fruitsFolder then
-                        fruits = fruitsFolder:GetChildren()
-                    else
-                        table.insert(fruits, plant)
-                    end
-
-                    for _, fruit in ipairs(fruits) do
-                        if not Options.AutoHarvestV1.Value then break end
-
-                        local variant = fruit:FindFirstChild("Variant") and fruit.Variant.Value or "Normal"
-                        local variantMatches = true
-                        if #selectedVariants > 0 then
-                            if mode == "Whitelist" then
-                                variantMatches = table.find(selectedVariants, variant) ~= nil
-                            elseif mode == "Blacklist" then
-                                variantMatches = table.find(selectedVariants, variant) == nil
-                            end
-                        end
-                        if not variantMatches then continue end
-
-                        local matchesMutation = false
-                        if #selectedMutations > 0 then
+                        for _, fruit in ipairs(fruitsFolder:GetChildren()) do
+                            if not Options.autoharvest.Value then break end
+                            local variant = fruit:FindFirstChild("Variant") and fruit.Variant.Value or "Normal"
+                            if not table.find(selectedVariants, variant) then continue end
+                            local w = fruit:FindFirstChild("Weight")
+                            local weight = (w and tonumber(w.Value)) or 0
+                            if weight < minWeight or weight > maxWeight then continue end
+                            local matchesMutation = false
                             for _, mutation in ipairs(selectedMutations) do
                                 if fruit:GetAttribute(mutation) == true then
                                     matchesMutation = true
                                     break
                                 end
                             end
-                            if mode == "Whitelist" then
-                                if not matchesMutation then continue end
-                            elseif mode == "Blacklist" then
-                                if matchesMutation then continue end
+                            if matchesMutation then
+                                byteNetReliable:FireServer(buffer, { fruit })
+                                task.wait(math.max(0.01, speed))
                             end
                         end
-
-                        local w = fruit:FindFirstChild("Weight")
+                    else
+                        local variant = plant:FindFirstChild("Variant") and plant.Variant.Value or "Normal"
+                        if not table.find(selectedVariants, variant) then continue end
+                        local w = plant:FindFirstChild("Weight")
                         local weight = (w and tonumber(w.Value)) or 0
-                        if weightMode == "Below" then
-                            if weight > weightValue then continue end
-                        else
-                            if weight < weightValue then continue end
+                        if weight < minWeight or weight > maxWeight then continue end
+                        local matchesMutation = false
+                        for _, mutation in ipairs(selectedMutations) do
+                            if plant:GetAttribute(mutation) == true then
+                                matchesMutation = true
+                                break
+                            end
                         end
-
-                        local replicatedStorage = game:GetService("ReplicatedStorage")
-                        local byteNetReliable = replicatedStorage:WaitForChild("ByteNetReliable")
-                        local buffer = buffer.fromstring("\1\1\0\1")
-                        byteNetReliable:FireServer(buffer, { fruit })
-                        task.wait(math.max(0.01, speed))
+                        if matchesMutation then
+                            byteNetReliable:FireServer(buffer, { plant })
+                            task.wait(math.max(0.01, speed))
+                        end
                     end
                 end
                 task.wait(speed)
             end
         end)
-    else
-        Fluent:Notify({
-            Title = "Auto Harvest",
-            Content = "Auto harvesting stopped.",
-            Duration = 0
-        })
     end
 end)
 
