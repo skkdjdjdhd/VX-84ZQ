@@ -779,7 +779,7 @@ local function quickSellOnce()
 end
 
 local AutoSellToggle = Tabs.Auto:AddToggle("AutoSellToggle", {
-    Title = "Auto Sell When Inventory full",
+    Title = "Auto Sell When Inventory",
     Default = false
 })
 
@@ -806,6 +806,7 @@ local Sections = { Craft = Tabs.Misc:AddSection("Auto crafting") }
 local CraftingService = game:GetService("ReplicatedStorage"):WaitForChild("GameEvents"):WaitForChild("CraftingGlobalObjectService")
 local player = game.Players.LocalPlayer
 
+-- Initialize global table for tracking used tools if not already set
 getgenv().usedUUIDs = getgenv().usedUUIDs or {}
 
 -- Function to input a tool into the crafting system
