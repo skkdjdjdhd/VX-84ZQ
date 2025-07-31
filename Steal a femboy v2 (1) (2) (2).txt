@@ -1,0 +1,2920 @@
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
+local GuiService = game:GetService("GuiService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+-- Fluent UI Setup
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local lp = game.Players.LocalPlayer
+local minimizeUI = Enum.KeyCode.RightAlt
+
+-- Main UI
+local Window
+local success, err = pcall(function()
+    Window = Fluent:CreateWindow({
+        Title = "Grow a garden",
+        SubTitle = "By Moondiety",
+        TabWidth = 160,
+        Size = UDim2.fromOffset(498, 445),
+        Acrylic = false,
+        Theme = Amethyst,
+        MinimizeKey = minimizeUI
+    })
+end)
+
+
+-- Wait for UI to initialize
+task.wait(0.1) -- Small delay to ensure Window is ready
+
+-- Tabs
+local Tabs = {}
+local tabNames = {
+    "Home", "Auto", "Harvest", "Misc", "Shops", "Ability", "Esp", "Guis", "Events","settings"
+}
+local tabIcons = {
+    "rbxassetid://6026568198", -- Home
+    "rbxassetid://6031763426", -- Auto
+    "sprout",
+    "rbxassetid://6034509993", -- Misc
+    "percent", -- Shops
+    "leaf", -- Ability
+    "eye", -- esp
+    "monitor", -- hsl(0,0%,100%)
+    "star", -- Events (calendar icon)
+    "settings" -- settings tab
+  
+}
+
+for i, name in ipairs(tabNames) do
+    local success, tab = pcall(function()
+        return Window:AddTab({ Title = name, Icon = tabIcons[i] })
+    end)
+    if success and tab then
+        Tabs[name] = tab
+    else
+        warn("Failed to create tab: " .. name)
+    end
+end
+
+-- Utility Functions
+local function parseMoney(moneyStr)
+    if not moneyStr then return 0 end
+    moneyStr = tostring(moneyStr):gsub("Â¢", ""):gsub(",", ""):gsub(" ", ""):gsub("%$", "")
+    local multiplier = 1
+    if moneyStr:lower():find("k") then
+        multiplier = 1000
+        moneyStr = moneyStr:lower():gsub("k", "")
+    elseif moneyStr:lower():find("m") then
+        multiplier = 1000000
+        moneyStr = moneyStr:lower():gsub("m", "")
+    end
+    return (tonumber(moneyStr) or 0) * multiplier
+end
+
+local function getPlayerMoney()
+    return parseMoney((shecklesStat and shecklesStat.Value) or 0)
+end
+
+local function isInventoryFull()
+    return #lp.Backpack:GetChildren() >= 200
+end
+
+-- Home Tab Content
+Tabs.Home:AddParagraph({
+    Title = "Credits",
+    Content = "By Moondiety x Vuk some fuatres by Vuk"
+})
+
+Tabs.Home:AddButton({
+    Title = "Join Discord",
+    Description = "Join up like a good boy for more scripts",
+    Callback = function()
+        setclipboard("https://discord.gg/wZ4hBXSrxY")
+        Fluent:Notify({
+            Title = "Discord Link Copied!",
+            Content = "Paste it into your browser to join.",
+            Duration = 5
+        })
+    end
+})
+
+Tabs.Home:AddButton({
+    Title = "Anti afk",
+    Description = "",
+    Callback = function()
+        local Players = game:GetService("Players")
+        local VirtualUser = game:GetService("VirtualUser")
+        local localPlayer = Players.LocalPlayer
+
+        local success = false
+
+        if getgc and islclosure and debug and getfenv then
+            for _, v in next, getgc(true) do
+                if typeof(v) == "function" and islclosure(v) then
+                    local info = debug.getinfo(v)
+                    if info and info.source and string.find(info.source, "Idled") then
+                        pcall(function()
+                            local env = getfenv(v)
+                            if env and env.script == localPlayer then
+                                if v.Disable then v.Disable(v) end
+                                if v.Disconnect then v.Disconnect(v) end
+                                success = true
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+
+        if not success then
+            localPlayer.Idled:Connect(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new())
+            end)
+        end
+
+        Fluent:Notify({
+            Title = "Goon",
+            Content = "Anti AFK Enabled!",
+            Duration = 3
+        })
+    end
+})
+
+
+local Sections = { as = Tabs.Auto:AddSection("Auto Buy Seeds") }
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+local Options = Fluent.Options
+
+local scrollFrame = player:WaitForChild("PlayerGui"):WaitForChild("Seed_Shop"):WaitForChild("Frame"):WaitForChild("ScrollingFrame")
+
+local function getSortedSeeds()
+    local seedList = {}
+
+    for _, obj in ipairs(scrollFrame:GetChildren()) do
+        if obj:IsA("Frame") then
+            local fruitName = obj.Name
+            local targetPath = scrollFrame:FindFirstChild(fruitName)
+            if targetPath and targetPath:FindFirstChild("Frame") then
+                local success, content = pcall(function()
+                    return targetPath.Frame.Sheckles_Buy.In_Stock.Cost_Text.ContentText
+                end)
+                if success and content then
+                    local cleaned = content:gsub(",", "")
+                    local cost = tonumber(cleaned:match("[%d%.]+"))
+                    if cost then
+                        table.insert(seedList, {Name = fruitName, Cost = cost})
+                    end
+                end
+            end
+        end
+    end
+
+    table.sort(seedList, function(a, b)
+        return a.Cost < b.Cost
+    end)
+
+    local sorted = {"All"}
+    for _, item in ipairs(seedList) do
+        table.insert(sorted, item.Name)
+    end
+
+    return sorted
+end
+
+local SelectedSeeds = {}
+
+local SeedDropdown = Tabs.Auto:AddDropdown("SelectedSeedDropdown", {
+    Title = "Select Seeds to Auto Buy",
+    Values = getSortedSeeds(),
+    Multi = true,
+    Default = {},
+})
+
+SeedDropdown:OnChanged(function(Value)
+    SelectedSeeds = {}
+    for seed, selected in pairs(Value) do
+        if selected then
+            table.insert(SelectedSeeds, seed)
+        end
+    end
+end)
+
+Tabs.Auto:AddToggle("AutoBuySelectedSeed", {
+    Title = "Auto Buy Selected Seeds",
+    Default = false,
+    Callback = function(enabled)
+        if enabled then
+            task.spawn(function()
+                while Options.AutoBuySelectedSeed.Value do
+                    local buyList = {}
+
+                    if table.find(SelectedSeeds, "All") then
+                        local sorted = getSortedSeeds()
+                        for i = 2, #sorted do
+                            table.insert(buyList, sorted[i])
+                        end
+
+                        for _, seed in ipairs(buyList) do
+                            task.spawn(function()
+                                local args = {seed}
+                                ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("BuySeedStock"):FireServer(unpack(args))
+                            end)
+                        end
+                    else
+                        buyList = SelectedSeeds
+
+                        for _, seed in ipairs(buyList) do
+                            local args = {seed}
+                            ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("BuySeedStock"):FireServer(unpack(args))
+                            task.wait(0.05)
+                        end
+                    end
+
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+
+
+
+-- Misc Tab Content
+local Sections = { femb = Tabs.Auto:AddSection("Auto Buy Gears") }
+
+local AllGears = {
+    "All",
+    "Watering Can", "Trowel", "Recall Wrench", "Basic Sprinkler", "Advanced Sprinkler", "Medium Toy", "Medium Treat",
+    "Godly Sprinkler", "Magnifying Glass", "Tanning Mirror", "Master Sprinkler", "Cleaning Spray", "Favorite Tool",
+    "Harvest Tool", "Friendship Pot", "Levelup Lollipop"
+}
+
+local SelectedGears = {}
+
+local GearDropdown = Tabs.Auto:AddDropdown("SelectedGearDropdown", {
+    Title = "Select Gear to Buy",
+    Values = AllGears,
+    Multi = true,
+    Default = {},
+})
+
+GearDropdown:OnChanged(function(Value)
+    SelectedGears = {}
+    for gear, selected in pairs(Value) do
+        if selected then
+            table.insert(SelectedGears, gear)
+        end
+    end
+end)
+
+Tabs.Auto:AddToggle("AutoBuySelectedGear", {
+    Title = "Auto Buy Selected Gear",
+    Default = false,
+    Callback = function(enabled)
+        if enabled then
+            if #SelectedGears == 282828282992 then
+                Fluent:Notify({
+                    Title = "Error",
+                    Content = "Nigga how the fuck you manged to do that.",
+                    Duration = 80
+                })
+                Fluent.Options.AutoBuySelectedGear:SetValue(false)
+                return
+            end
+
+            task.spawn(function()
+                while Fluent.Options.AutoBuySelectedGear.Value do
+                    if table.find(SelectedGears, "All") then
+                        for i = 2, #AllGears do
+                            game:GetService("ReplicatedStorage"):WaitForChild("GameEvents"):WaitForChild("BuyGearStock"):FireServer(AllGears[i])
+                        end
+                    else
+                        for _, gear in ipairs(SelectedGears) do
+                            game:GetService("ReplicatedStorage"):WaitForChild("GameEvents"):WaitForChild("BuyGearStock"):FireServer(gear)
+                            task.wait(0.2)
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+-- 🎉 EVENT ITEM SETUP
+
+local Sections = { tuff = Tabs.Auto:AddSection("Auto Buy Eggs") }
+
+local Options = Fluent.Options
+local eggList = {
+    "Common Egg",
+    "Common Summer Egg",
+    "Rare Summer Egg",
+    "Mythical Egg",
+    "Paradise Summer Egg",
+    "Bee Egg",
+    "Bug Egg"
+}
+
+local MultiEggDropdown = Tabs.Auto:AddDropdown("SelectedEggs", {
+    Title = "Select Egg to buy",
+    Description = "Select eggs to buy",
+    Values = { "All", unpack(eggList) },
+    Multi = true,
+    Default = {}
+})
+
+local AutoBuyToggle = Tabs.Auto:AddToggle("AutoBuyEggs", { Title = "Auto buy selected Eggs", Default = false })
+
+-- Buy function
+local function buyEgg(eggName)
+    local args = { eggName }
+    local success, err = pcall(function()
+        game:GetService("ReplicatedStorage"):WaitForChild("GameEvents"):WaitForChild("BuyPetEgg"):FireServer(unpack(args))
+    end)
+    if not success then
+        warn("Failed to buy egg: " .. tostring(err))
+    end
+end
+
+-- Main auto-buy loop
+task.spawn(function()
+    while true do
+        task.wait(0.1) -- Add slight delay to prevent server overload
+        if Options.AutoBuyEggs.Value then
+            local selected = Options.SelectedEggs.Value
+            local toBuy = {}
+
+            if selected["All"] then
+                toBuy = eggList
+            else
+                toBuy = {}
+                for egg, enabled in pairs(selected) do
+                    if enabled and egg ~= "All" then
+                        table.insert(toBuy, egg)
+                    end
+                end
+            end
+
+            if #toBuy == 0 then
+                warn("No eggs selected to buy!")
+                task.wait(1) -- Wait longer if nothing to buy
+                continue
+            end
+
+            for _, eggName in ipairs(toBuy) do
+                buyEgg(eggName)
+                task.wait(0.5) -- Delay between purchases
+                if not Options.AutoBuyEggs.Value then
+                    break
+                end
+            end
+        end
+    end
+end)
+
+
+local Sections = { nigga = Tabs.Harvest:AddSection("Auto Harvest") }
+
+local AutoHarvestV1Toggle = Tabs.Harvest:AddToggle("AutoHarvestV1", {
+    Title = "Auto Harvest",
+    Description = "harvests all plants and fruits automatically.",
+    Default = false,
+    Callback = function(value)
+        if value then
+            task.spawn(function()
+                local player = game:GetService("Players").LocalPlayer
+                local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                local getFarm = require(ReplicatedStorage.Modules.GetFarm)
+                local byteNetReliable = ReplicatedStorage:WaitForChild("ByteNetReliable")
+                local buffer = buffer.fromstring("\1\1\0\1")
+
+                local minWeight, maxWeight = 0, 9999
+
+                local function harvestFilter(obj, minW, maxW)
+                    local w = obj:FindFirstChild("Weight")
+                    if not w or not tonumber(w.Value) then return false end
+                    local val = tonumber(w.Value)
+                    return val >= minW and val <= maxW
+                end
+
+                while Fluent.Options.AutoHarvestV1.Value do
+                    local farm = getFarm(player)
+                    if not farm or not farm:FindFirstChild("Important") or not farm.Important:FindFirstChild("Plants_Physical") then
+                        warn("Could not find Plants_Physical.")
+                        Fluent.Options.AutoHarvestV1.Value = false
+                        return
+                    end
+
+                    for _, plant in ipairs(farm.Important.Plants_Physical:GetChildren()) do
+                        if not Fluent.Options.AutoHarvestV1.Value then break end
+
+                        if harvestFilter(plant, minWeight, maxWeight) then
+                            byteNetReliable:FireServer(buffer, { plant })
+                            task.wait(math.max(0.01, Fluent.Options.HarvestV1Speed.Value or 0.01))
+                        end
+
+                        local fruits = plant:FindFirstChild("Fruits", true)
+                        if fruits then
+                            for _, fruit in ipairs(fruits:GetChildren()) do
+                                if not Fluent.Options.AutoHarvestV1.Value then break end
+
+                                if harvestFilter(fruit, minWeight, maxWeight) then
+                                    byteNetReliable:FireServer(buffer, { fruit })
+                                    task.wait(math.max(0.01, Fluent.Options.HarvestV1Speed.Value or 0.01))
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+})
+
+
+local HarvestV1SpeedInput = Tabs.Harvest:AddInput("HarvestV1Speed", {
+    Title = "Set Harvest Speed",
+    Default = "0.1",
+    Placeholder = "Enter seconds (e.g., 0.05)",
+    Numeric = false,
+    Finished = true,
+    Callback = function(value)
+        local num = tonumber(value)
+        if num and num > 0 then
+            Fluent.Options.HarvestV1Speed.Value = num
+        else
+            Fluent:Notify({
+                Title = "holder",
+                Content = "if yoy seeing this plz give vuk femboy).",
+                Duration = 0
+            })
+            Fluent.Options.HarvestV1Speed.Value = 0.01
+        end
+    end
+})
+
+
+local Sections = { fooniabf = Tabs.Harvest:AddSection("Auto Hervest V2") }
+
+local Options = Fluent.Options
+
+local mutations = {
+    'Wet', 'Windstruck', 'Moonlit', 'Chilled', 'Choc', 'Pollinated', 'Sandy', 'Clay', 'Verdant',
+    'Bloodlit', 'Twisted', 'Drenched', 'HoneyGlazed', 'Cloudtouched', 'Frozen', 'Tempestuous',
+    'Ceramic', 'Friendbound', 'Sundried', 'Aurora', 'Shocked', 'Celestial', 'Dawnbound',
+    'Burnt', 'Static', 'Amber', 'Cooked', 'Chakra', 'CorruptChakra', 'Tranquil', 'OldAmber',
+    'Corrupt', 'Zombified', 'HarmonisedChakra', 'HarmonisedFoxfireChakra', 'AncientAmber',
+    'FoxfireChakra', 'CorruptFoxfireChakra', 'Paradisal', 'Disco', 'Heavenly', 'Plasma',
+    'Fried', 'Molten', 'Subzero', 'Blitzshock', 'Infected', 'Jackpot', 'Radioactive', 'Alienlike',
+    'Galactic', 'Touchdown', 'Meteoric', 'Voidtouched', 'Wiltproof', 'Toxic', 'Eclipsed',
+    'Enlightened', 'Cosmic', 'Equinox'
+}
+local variants = {'Normal', 'Gold', 'Rainbow'}
+
+local AutoHarvestToggle = Tabs.Harvest:AddToggle("AutoHarvestV1", {
+    Title = "Auto Harvest V2",
+    Default = false
+})
+
+local MutationsDropdown = Tabs.Harvest:AddDropdown("MutationSelect", {
+    Title = "Select Mutations",
+    Values = mutations,
+    Multi = true,
+    Default = {}
+})
+
+local VariantsDropdown = Tabs.Harvest:AddDropdown("VariantSelect", {
+    Title = "Select Variants",
+    Values = variants,
+    Multi = true,
+    Default = {}
+})
+
+local function getPlayerFarm()
+    local players = game:GetService("Players")
+    local player = players.LocalPlayer
+    for _, f in ipairs(workspace.Farm:GetChildren()) do
+        if f:FindFirstChild("Important") and f.Important:FindFirstChild("Data") and f.Important.Data:FindFirstChild("Owner") then
+            if f.Important.Data.Owner.Value == player.Name then
+                return f
+            end
+        end
+    end
+    return nil
+end
+
+local function getPlantNames(farm)
+    local plantNames = {}
+    local seen = {}
+    local plantsPhysical = farm.Important:FindFirstChild("Plants_Physical")
+    if plantsPhysical then
+        for _, plant in ipairs(plantsPhysical:GetChildren()) do
+            if not seen[plant.Name] then
+                table.insert(plantNames, plant.Name)
+                seen[plant.Name] = true
+            end
+        end
+    end
+    return plantNames
+end
+
+local pfarm = getPlayerFarm()
+local pnames = getPlantNames(pfarm)
+local PlantsDropdown = Tabs.Harvest:AddDropdown("PlantSelect", {
+    Title = "Select Plants",
+    Values = pnames,
+    Multi = true,
+    Default = {}
+})
+
+Tabs.Harvest:AddButton({
+    Title = "Update Plant List",
+    Callback = function()
+        local farm = getPlayerFarm()
+        if not farm then
+            Fluent:Notify({
+                Title = "Error",
+                Content = "Could not find your farm.",
+                Duration = 5
+            })
+            return
+        end
+        local currentSelections = Options.PlantSelect.Value
+        local newPlantNames = getPlantNames(farm)
+        PlantsDropdown.Values = newPlantNames
+        local newSelections = {}
+        for plant, selected in pairs(currentSelections) do
+            if selected and table.find(newPlantNames, plant) then
+                newSelections[plant] = true
+            end
+        end
+        PlantsDropdown:SetValue(newSelections)
+        Fluent:Notify({
+            Title = "Update",
+            Content = "Plant list updated.",
+            Duration = 3
+        })
+    end
+})
+
+
+
+local ModeDropdown = Tabs.Harvest:AddDropdown("FilterMode", {
+    Title = "Mode",
+    Values = {"Whitelist", "Blacklist"},
+    Multi = false,
+    Default = "Whitelist"
+})
+
+local WeightModeDropdown = Tabs.Harvest:AddDropdown("WeightMode", {
+    Title = "Weight Mode",
+    Values = {"Below", "Above"},
+    Multi = false,
+    Default = "Below"
+})
+
+local WeightSlider = Tabs.Harvest:AddSlider("WeightSlider", {
+    Title = "Weight",
+    Default = 100,
+    Min = 0,
+    Max = 1000,
+    Rounding = 0
+})
+
+local SpeedModeDropdown = Tabs.Harvest:AddDropdown("SpeedMode", {
+    Title = "Speed Mode",
+    Values = {"Slow", "Normal", "Fast", "Super", "Hyper"},
+    Multi = false,
+    Default = "Normal"
+})
+
+
+
+local speedDelays = {
+    Slow = 1,
+    Normal = 0.5,
+    Fast = 0.3,
+    Super = 0.1,
+    Hyper = 0
+}
+
+
+AutoHarvestToggle:OnChanged(function(value)
+    if value then
+        local farm = getPlayerFarm()
+        if not farm then
+            Fluent:Notify({
+                Title = "Error",
+                Content = "Could not find your farm.",
+                Duration = 10
+            })
+            Options.AutoHarvestV1:SetValue(false)
+            return
+        end
+        local plantNames = getPlantNames(farm)
+        PlantsDropdown.Values = plantNames
+        Fluent:Notify({
+            Title = "Auto Harvest",
+            Content = "Auto harvesting started.",
+            Duration = 0
+        })
+        task.spawn(function()
+            while Options.AutoHarvestV1.Value do
+                local selectedMutations = {}
+                for mutation, state in pairs(Options.MutationSelect.Value) do
+                    if state then
+                        table.insert(selectedMutations, mutation)
+                    end
+                end
+                local selectedVariants = {}
+                for variant, state in pairs(Options.VariantSelect.Value) do
+                    if state then
+                        table.insert(selectedVariants, variant)
+                    end
+                end
+                local selectedPlants = {}
+                for plant, state in pairs(Options.PlantSelect.Value) do
+                    if state then
+                        table.insert(selectedPlants, plant)
+                    end
+                end
+                local mode = Options.FilterMode.Value
+                local weightMode = Options.WeightMode.Value
+                local weightValue = Options.WeightSlider.Value
+                local speedMode = Options.SpeedMode.Value
+                local speed = speedDelays[speedMode] or 0.5
+
+                local plantsPhysical = farm.Important:FindFirstChild("Plants_Physical")
+                if not plantsPhysical then break end
+
+                for _, plant in ipairs(plantsPhysical:GetChildren()) do
+                    if not Options.AutoHarvestV1.Value then break end
+
+                    local plantNameMatches = true
+                    if #selectedPlants > 0 then
+                        if mode == "Whitelist" then
+                            plantNameMatches = table.find(selectedPlants, plant.Name) ~= nil
+                        elseif mode == "Blacklist" then
+                            plantNameMatches = table.find(selectedPlants, plant.Name) == nil
+                        end
+                    end
+                    if not plantNameMatches then continue end
+
+                    local fruits = {}
+                    local fruitsFolder = plant:FindFirstChild("Fruits")
+                    if fruitsFolder then
+                        fruits = fruitsFolder:GetChildren()
+                    else
+                        table.insert(fruits, plant)
+                    end
+
+                    for _, fruit in ipairs(fruits) do
+                        if not Options.AutoHarvestV1.Value then break end
+
+                        local variant = fruit:FindFirstChild("Variant") and fruit.Variant.Value or "Normal"
+                        local variantMatches = true
+                        if #selectedVariants > 0 then
+                            if mode == "Whitelist" then
+                                variantMatches = table.find(selectedVariants, variant) ~= nil
+                            elseif mode == "Blacklist" then
+                                variantMatches = table.find(selectedVariants, variant) == nil
+                            end
+                        end
+                        if not variantMatches then continue end
+
+                        local matchesMutation = false
+                        if #selectedMutations > 0 then
+                            for _, mutation in ipairs(selectedMutations) do
+                                if fruit:GetAttribute(mutation) == true then
+                                    matchesMutation = true
+                                    break
+                                end
+                            end
+                            if mode == "Whitelist" then
+                                if not matchesMutation then continue end
+                            elseif mode == "Blacklist" then
+                                if matchesMutation then continue end
+                            end
+                        end
+
+                        local w = fruit:FindFirstChild("Weight")
+                        local weight = (w and tonumber(w.Value)) or 0
+                        if weightMode == "Below" then
+                            if weight > weightValue then continue end
+                        else
+                            if weight < weightValue then continue end
+                        end
+
+                        local replicatedStorage = game:GetService("ReplicatedStorage")
+                        local byteNetReliable = replicatedStorage:WaitForChild("ByteNetReliable")
+                        local buffer = buffer.fromstring("\1\1\0\1")
+                        byteNetReliable:FireServer(buffer, { fruit })
+                        task.wait(math.max(0.01, speed))
+                    end
+                end
+                task.wait(speed)
+            end
+        end)
+    else
+        Fluent:Notify({
+            Title = "Auto Harvest",
+            Content = "Auto harvesting stopped.",
+            Duration = 0
+        })
+    end
+end)
+
+Window:SelectTab(1)
+
+local Sections = { fembsex = Tabs.Auto:AddSection("Auto Sell") }
+
+local lp = game:GetService("Players").LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local autoSellEnabled = false
+local autoSellThread
+
+local function hasEnoughSeeds()
+    local tools = lp.Backpack:GetChildren()
+    local count = 0
+    for _, tool in ipairs(tools) do
+        if tool:IsA("Tool") and tool:FindFirstChild("Item_Seed") then
+            count += 1
+        end
+    end
+    return count >= 199
+end
+
+local function quickSellOnce()
+    local char = lp.Character
+    if not char then return end
+
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local originalPosition = hrp.CFrame
+    hrp.CFrame = CFrame.new(94.59, 3, 1.29) 
+    task.wait(1)
+
+    pcall(function()
+        ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("Sell_Inventory"):FireServer()
+    end)
+
+    task.wait(0.25)
+    hrp.CFrame = originalPosition
+end
+
+local AutoSellToggle = Tabs.Auto:AddToggle("AutoSellToggle", {
+    Title = "Auto Sell When Inventory full",
+    Default = false
+})
+
+AutoSellToggle:OnChanged(function(state)
+    autoSellEnabled = state
+    if autoSellEnabled then
+        autoSellThread = task.spawn(function()
+            while autoSellEnabled do
+                if hasEnoughSeeds() then
+                    quickSellOnce()
+                end
+                task.wait(1)
+            end
+        end)
+    else
+        if autoSellThread then
+            task.cancel(autoSellThread)
+            autoSellThread = nil
+        end
+    end
+end)
+
+local Sections = { Craft = Tabs.Misc:AddSection("Auto crafting") }
+local CraftingService = game:GetService("ReplicatedStorage"):WaitForChild("GameEvents"):WaitForChild("CraftingGlobalObjectService")
+local player = game.Players.LocalPlayer
+
+getgenv().usedUUIDs = getgenv().usedUUIDs or {}
+
+-- Function to input a tool into the crafting system
+local function inputToolByName(name, index, itemType, Workbench, WorkbenchName, exactMatch)
+    itemType = itemType or "Holdable"
+    local backpack = player:WaitForChild("Backpack")
+    
+    -- Clean tool name by removing quantity indicators (e.g., "x123" or "[x123]")
+    local function cleanToolName(str)
+        str = str:gsub("%s*x%d+$", "")      -- Remove " x123"
+        str = str:gsub("%s*%[.-%]%s*", "")  -- Remove "[...]" with or without spaces
+        return str
+    end
+    
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") then
+            -- Apply blacklist unless explicitly ignored
+            if not getgenv().ignoreBlacklist then
+                local lower = tool.Name:lower()
+                if lower:find("seed") or lower:find("rahhhh") then
+                    continue
+                end
+            end
+            
+            local toolNameToCheck = cleanToolName(tool.Name)
+            local matched = exactMatch and (toolNameToCheck == name) or toolNameToCheck:find(name)
+            
+            if matched then
+                local uuid = tool:GetAttribute("c")
+                if uuid and not table.find(getgenv().usedUUIDs, uuid) then
+                    local args = {
+                        "InputItem",
+                        Workbench,
+                        WorkbenchName,
+                        index,
+                        {
+                            ItemType = itemType,
+                            ItemData = { UUID = uuid }
+                        }
+                    }
+                    CraftingService:FireServer(unpack(args))
+                    table.insert(getgenv().usedUUIDs, uuid)
+                    task.wait(0.2)
+                    return true -- Tool successfully inputted
+                end
+            end
+        end
+    end
+    return false -- Tool not found or already used
+end
+
+-- Generalized function to trigger proximity prompt on any workbench
+local function triggerProximityPrompt(workbench)
+    task.wait(2)
+    for _, descendant in ipairs(workbench:GetDescendants()) do
+        if descendant:IsA("ProximityPrompt") and descendant.Name == "CraftingProximityPrompt" then
+            fireproximityprompt(descendant)
+            task.wait(3)
+            fireproximityprompt(descendant)
+            break
+        end
+    end
+end
+
+-- Crafting functions for items
+local function craftLightningRod()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Lightning Rod")
+    task.wait(1)
+    local success = true
+    success = success and inputToolByName("Basic Sprinkler", 1, "Sprinkler", Workbench, WorkbenchName)
+    success = success and inputToolByName("Advanced Sprinkler", 2, "Sprinkler", Workbench, WorkbenchName)
+    success = success and inputToolByName("Godly Sprinkler", 3, "Sprinkler", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Lightning Rod: Missing required tools")
+    end
+end
+
+local function craftReclaimer()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Reclaimer")
+    task.wait(0.3)
+    local success = true
+    success = success and inputToolByName("Common Egg", 1, "PetEgg", Workbench, WorkbenchName)
+    success = success and inputToolByName("Harvest Tool", 2, "Harvest Tool", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Reclaimer: Missing required tools")
+    end
+end
+
+local function craftTropicalMist()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Tropical Mist Sprinkler")
+    task.wait(1)
+    local success = true
+    success = success and inputToolByName("Coconut", 1, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Dragon Fruit", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Mango", 3, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Godly Sprinkler", 4, "Sprinkler", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Tropical Mist Sprinkler: Missing required tools")
+    end
+end
+
+local function craftBerryBlusher()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Berry Blusher Sprinkler")
+    task.wait(1)
+    local success = true
+    success = success and inputToolByName("Grape", 1, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Blueberry", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Strawberry", 3, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Godly Sprinkler", 4, "Sprinkler", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Berry Blusher Sprinkler: Missing required tools")
+    end
+end
+
+local function craftSweetSoaker()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Sweet Soaker Sprinkler")
+    task.wait(1)
+    local success = true
+    success = success and inputToolByName("Watermelon", 1, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Watermelon", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Watermelon", 3, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Master Sprinkler", 4, "Sprinkler", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Sweet Soaker Sprinkler: Missing required tools")
+    end
+end
+
+local function craftFlowerFroster()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Flower Froster Sprinkler")
+    task.wait(1)
+    local success = true
+    success = success and inputToolByName("Orange Tulip", 1, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Daffodil", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Advanced Sprinkler", 3, "Sprinkler", Workbench, WorkbenchName)
+    success = success and inputToolByName("Basic Sprinkler", 4, "Sprinkler", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Flower Froster Sprinkler: Missing required tools")
+    end
+end
+
+local function craftSpiceSpritzer()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Spice Spritzer Sprinkler")
+    task.wait(1)
+    local success = true
+    success = success and inputToolByName("Pepper", 1, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Ember Lily", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Cacao", 3, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Master Sprinkler", 4, "Sprinkler", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Spice Spritzer Sprinkler: Missing required tools")
+    end
+end
+
+local function craftStalkSprout()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Stalk Sprout Sprinkler")
+    task.wait(1)
+    local success = true
+    success = success and inputToolByName("Bamboo", 1, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Beanstalk", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Mushroom", 3, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Advanced Sprinkler", 4, "Sprinkler", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Stalk Sprout Sprinkler: Missing required tools")
+    end
+end
+
+local function craftMutationSprayChoc()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Mutation Spray Choc")
+    task.wait(0.4)
+    local success = true
+    success = success and inputToolByName("Cleaning Spray", 1, "SprayBottle", Workbench, WorkbenchName)
+    success = success and inputToolByName("Cacao", 2, nil, Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Mutation Spray Choc: Missing required tools")
+    end
+end
+
+local function craftMutationSprayChilled()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Mutation Spray Chilled")
+    task.wait(0.4)
+    local success = true
+    success = success and inputToolByName("Cleaning Spray", 1, "SprayBottle", Workbench, WorkbenchName)
+    success = success and inputToolByName("Godly Sprinkler", 2, "Sprinkler", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Mutation Spray Chilled: Missing required tools")
+    end
+end
+
+local function craftMutationSprayShocked()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Mutation Spray Shocked")
+    task.wait(0.4)
+    local success = true
+    success = success and inputToolByName("Cleaning Spray", 1, "SprayBottle", Workbench, WorkbenchName)
+    success = success and inputToolByName("Lightning Rod", 2, "Lightning Rod", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Mutation Spray Shocked: Missing required tools")
+    end
+end
+
+local function craftAntiBeeEgg()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Anti Bee Egg")
+    task.wait(0.4)
+    local success = inputToolByName("Bee Egg", 1, "PetEgg", Workbench, WorkbenchName, true)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Anti Bee Egg: Missing Bee Egg")
+    end
+end
+
+local function craftSmallToy()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Small Toy")
+    task.wait(0.4)
+    local success = true
+    success = success and inputToolByName("Common Egg", 1, "PetEgg", Workbench, WorkbenchName, true)
+    success = success and inputToolByName("Coconut Seed", 2, "Seed", Workbench, WorkbenchName)
+    success = success and inputToolByName("Coconut", 3, nil, Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Small Toy: Missing required tools")
+    end
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+local function craftSmallTreat()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Small Treat")
+    task.wait(0.4)
+    local success = true
+    success = success and inputToolByName("Common Egg", 1, "PetEgg", Workbench, WorkbenchName, true)
+    success = success and inputToolByName("Dragon Fruit Seed", 2, "Seed", Workbench, WorkbenchName)
+    success = success and inputToolByName("Blueberry", 3, nil, Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Small Treat: Missing required tools")
+    end
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+local function craftPackBee()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("EventCraftingWorkBench")
+    local WorkbenchName = "GearEventWorkbench"
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Pack Bee")
+    task.wait(0.4)
+    local success = true
+    success = success and inputToolByName("Anti Bee Egg", 1, "PetEgg", Workbench, WorkbenchName)
+    success = success and inputToolByName("Sunflower", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Purple Dahlia", 3, nil, Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Pack Bee: Missing required tools")
+    end
+end
+
+-- Crafting functions for seeds
+local function craftHorsetailSeed()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("SeedEventCraftingWorkBench")
+    local WorkbenchName = "SeedEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Horsetail")
+    task.wait(0.3)
+    local success = true
+    success = success and inputToolByName("Stonebite Seed", 1, "Seed", Workbench, WorkbenchName)
+    success = success and inputToolByName("Bamboo", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Corn", 3, nil, Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Horsetail Seed: Missing required tools")
+    end
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+local function craftLingonBerrySeed()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("SeedEventCraftingWorkBench")
+    local WorkbenchName = "SeedEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    local recipeTools = {"Blueberry Seed", "Blueberry Seed", "Blueberry Seed", "Horsetail"}
+
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Lingonberry")
+    task.wait(0.3)
+
+    local success = true
+
+    getgenv().usedUUIDs = {}
+    success = success and inputToolByName("Blueberry Seed", 1, "Seed", Workbench, WorkbenchName)
+    task.wait(0.5)
+
+    getgenv().usedUUIDs = {}
+    success = success and inputToolByName("Blueberry Seed", 2, "Seed", Workbench, WorkbenchName)
+    task.wait(0.5)
+
+    getgenv().usedUUIDs = {}
+    success = success and inputToolByName("Blueberry Seed", 3, "Seed", Workbench, WorkbenchName)
+    task.wait(0.5)
+
+    success = success and inputToolByName("Horsetail", 4, nil, Workbench, WorkbenchName)
+
+    if success then
+        task.wait(0.2)
+        fireyk()
+        if hasSpacedTool(recipeTools) then
+            task.wait(0.3)
+            getgenv().usedUUIDs = {}
+        end
+    else
+        warn("Failed to craft Lingon Berry Seed: Missing required tools")
+    end
+
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+local function craftAmberSpineSeed()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("SeedEventCraftingWorkBench")
+    local WorkbenchName = "SeedEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Amber Spine")
+    task.wait(0.3)
+    local success = true
+    success = success and inputToolByName("Cactus Seed", 1, "Seed", Workbench, WorkbenchName)
+    success = success and inputToolByName("Pumpkin", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Horsetail", 3, nil, Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Amber Spine Seed: Missing required tools")
+    end
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+local function craftGrandVolcaniaSeed()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("SeedEventCraftingWorkBench")
+    local WorkbenchName = "SeedEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Grand Volcania")
+    task.wait(0.3)
+    local success = true
+    success = success and inputToolByName("Ember Lily", 1, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Ember Lily", 2, nil, Workbench, WorkbenchName)
+    success = success and inputToolByName("Dinosaur Egg", 3, "PetEgg", Workbench, WorkbenchName)
+    success = success and inputToolByName("Ancient Seed Pack", 4, "Seed Pack", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Grand Volcania Seed: Missing required tools")
+    end
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+local function craftPeaceLilySeed()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("SeedEventCraftingWorkBench")
+    local WorkbenchName = "SeedEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Peace Lily")
+    task.wait(0.3)
+    local success = true
+    success = success and inputToolByName("Rafflesia Seed", 1, "Seed", Workbench, WorkbenchName)
+    success = success and inputToolByName("Cauliflower Seed", 2, "Seed", Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Peace Lily Seed: Missing required tools")
+    end
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+local function craftAloeVeraSeed()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("SeedEventCraftingWorkBench")
+    local WorkbenchName = "SeedEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Aloe Vera")
+    task.wait(0.3)
+    local success = true
+    success = success and inputToolByName("Peace Lily Seed", 1, "Seed", Workbench, WorkbenchName)
+    success = success and inputToolByName("Prickly Pear", 2, nil, Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Aloe Vera Seed: Missing required tools")
+    end
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+local function craftGuanabanaSeed()
+    getgenv().usedUUIDs = {}
+    local Workbench = workspace:WaitForChild("CraftingTables"):WaitForChild("SeedEventCraftingWorkBench")
+    local WorkbenchName = "SeedEventWorkbench"
+    local prevIgnore = getgenv().ignoreBlacklist
+    getgenv().ignoreBlacklist = true
+    CraftingService:FireServer("SetRecipe", Workbench, WorkbenchName, "Guanabana")
+    task.wait(0.3)
+    local success = true
+    success = success and inputToolByName("Aloe Vera Seed", 1, "Seed", Workbench, WorkbenchName)
+    success = success and inputToolByName("Prickly Pear Seed", 2, "Seed", Workbench, WorkbenchName)
+    success = success and inputToolByName("Banana", 3, nil, Workbench, WorkbenchName)
+    if success then
+        task.wait(0.2)
+        triggerProximityPrompt(Workbench)
+    else
+        warn("Failed to craft Guanabana Seed: Missing required tools")
+    end
+    getgenv().ignoreBlacklist = prevIgnore
+end
+
+-- UI Setup
+local Dropdown = Sections.Craft:AddDropdown("CraftItemDropdown", {
+    Title = "Select Item Recipes",
+    Values = {
+        "Lightning Rod", "Reclaimer", "Tropical Mist Sprinkler", "Berry Blusher Sprinkler",
+        "Sweet Soaker Sprinkler", "Flower Froster Sprinkler", "Spice Spritzer Sprinkler",
+        "Stalk Sprout Sprinkler", "Mutation Spray Choc", "Mutation Spray Chilled",
+        "Mutation Spray Shocked", "Anti Bee Egg", "Small Toy", "Small Treat", "Pack Bee"
+    },
+    Multi = false,
+    Default = 1
+})
+
+local SeedDropdown = Sections.Craft:AddDropdown("SeedRecipeDropdown", {
+    Title = "Select Seed Recipe",
+    Values = {"Horsetail Seed", "Lingon Berry Seed", "Amber Spine Seed", "Grand Volcania Seed", "Peace Lily Seed", "Aloe Vera Seed", "Guanabana Seed"},
+    Multi = false,
+    Default = "Horsetail Seed"
+})
+
+local AutoCraftToggle = Sections.Craft:AddToggle("AutoCraftToggle", {
+    Title = "Auto Craft Selected Item Recipes",
+    Default = false
+})
+
+local AutoSeedToggle = Sections.Craft:AddToggle("AutoCraftSeedToggle", {
+    Title = "Auto Craft Selected Seed Recipe",
+    Default = false
+})
+
+-- Crafting loop logic
+local activeLoop = false
+local craftTimes = {
+    ["Lightning Rod"] = 46, ["Reclaimer"] = 26, ["Tropical Mist Sprinkler"] = 61,
+    ["Berry Blusher Sprinkler"] = 61, ["Spice Spritzer Sprinkler"] = 61,
+    ["Flower Froster Sprinkler"] = 61, ["Stalk Sprout Sprinkler"] = 61,
+    ["Sweet Soaker Sprinkler"] = 61, ["Mutation Spray Choc"] = 13,
+    ["Mutation Spray Chilled"] = 6, ["Mutation Spray Shocked"] = 31,
+    ["Anti Bee Egg"] = 121, ["Small Toy"] = 11, ["Small Treat"] = 11, ["Pack Bee"] = 241
+}
+
+local function stopLoop()
+    activeLoop = false
+end
+
+local function startLoop(itemName, intervalMins, func)
+    stopLoop()
+    activeLoop = true
+    coroutine.wrap(function()
+        while activeLoop and AutoCraftToggle.Value and Dropdown.Value == itemName do
+            func()
+            local waitTime = intervalMins * 60
+            local startTime = tick()
+            while tick() - startTime < waitTime do
+                if not (activeLoop and AutoCraftToggle.Value and Dropdown.Value == itemName) then
+                    break
+                end
+                task.wait(1)
+            end
+        end
+    end)()
+end
+
+local function updateCraftingLoop()
+    stopLoop()
+    if not AutoCraftToggle.Value then return end
+    local selected = Dropdown.Value
+    local interval = craftTimes[selected]
+    if not interval then return end
+
+    local functionMap = {
+        ["Lightning Rod"] = craftLightningRod,
+        ["Reclaimer"] = craftReclaimer,
+        ["Tropical Mist Sprinkler"] = craftTropicalMist,
+        ["Berry Blusher Sprinkler"] = craftBerryBlusher,
+        ["Sweet Soaker Sprinkler"] = craftSweetSoaker,
+        ["Flower Froster Sprinkler"] = craftFlowerFroster,
+        ["Spice Spritzer Sprinkler"] = craftSpiceSpritzer,
+        ["Stalk Sprout Sprinkler"] = craftStalkSprout,
+        ["Mutation Spray Choc"] = craftMutationSprayChoc,
+        ["Mutation Spray Chilled"] = craftMutationSprayChilled,
+        ["Mutation Spray Shocked"] = craftMutationSprayShocked,
+        ["Anti Bee Egg"] = craftAntiBeeEgg,
+        ["Small Toy"] = craftSmallToy,
+        ["Small Treat"] = craftSmallTreat,
+        ["Pack Bee"] = craftPackBee
+    }
+
+    local func = functionMap[selected]
+    if func then
+        startLoop(selected, interval, func)
+    end
+end
+
+Dropdown:OnChanged(updateCraftingLoop)
+AutoCraftToggle:OnChanged(updateCraftingLoop)
+
+-- Seed crafting loop logic
+local activeSeedLoop = false
+local seedCraftTimes = {
+    ["Horsetail Seed"] = 16,
+    ["Lingon Berry Seed"] = 16,
+    ["Amber Spine Seed"] = 31,
+    ["Grand Volcania Seed"] = 46,
+    ["Peace Lily Seed"] = 11,
+    ["Aloe Vera Seed"] = 11,
+    ["Guanabana Seed"] = 11
+}
+
+local function stopSeedLoop()
+    activeSeedLoop = false
+end
+
+local function startSeedLoop(seedName, intervalMins, func)
+    stopSeedLoop()
+    activeSeedLoop = true
+    coroutine.wrap(function()
+        while activeSeedLoop and AutoSeedToggle.Value and SeedDropdown.Value == seedName do
+            func()
+            local waitTime = intervalMins * 60
+            local startTime = tick()
+            while tick() - startTime < waitTime do
+                if not (activeSeedLoop and AutoSeedToggle.Value and SeedDropdown.Value == seedName) then
+                    break
+                end
+                task.wait(1)
+            end
+        end
+    end)()
+end
+
+local function updateSeedLoop()
+    stopSeedLoop()
+    if not AutoSeedToggle.Value then return end
+    local seed = SeedDropdown.Value
+    local interval = seedCraftTimes[seed]
+    if not interval then return end
+
+    local seedMap = {
+        ["Horsetail Seed"] = craftHorsetailSeed,
+        ["Lingon Berry Seed"] = craftLingonBerrySeed,
+        ["Amber Spine Seed"] = craftAmberSpineSeed,
+        ["Grand Volcania Seed"] = craftGrandVolcaniaSeed,
+        ["Peace Lily Seed"] = craftPeaceLilySeed,
+        ["Aloe Vera Seed"] = craftAloeVeraSeed,
+        ["Guanabana Seed"] = craftGuanabanaSeed
+    }
+
+    local fn = seedMap[seed]
+    if fn then
+        startSeedLoop(seed, interval, fn)
+    end
+end
+
+SeedDropdown:OnChanged(updateSeedLoop)
+AutoSeedToggle:OnChanged(updateSeedLoop)
+
+
+
+local Options = Fluent.Options
+
+
+local combinedList = {
+    "All",
+    -- Crates
+    "Common Gnome Crate",
+    "Farmers Gnome Crate",
+    "Classic Gnome Crate",
+
+    -- Special items (middle)
+    "Night Staff",
+    "Star Caller",
+    "Mutation Spray Cloudtouched",
+
+    -- Sprays
+    "Mutation Spray Wet",
+    "Mutation Spray Windstruck",
+    "Mutation Spray Verdant"
+}
+
+Tabs.Misc:AddSection("Traveling Merchant Shop")
+
+Tabs.Misc:AddDropdown("ItemToBuy", {
+    Title = "Select Traveling Merch to Buy",
+    Values = combinedList,
+    Multi = false,
+    Default = "Common Gnome Crate"
+})
+
+Tabs.Misc:AddToggle("AutoBuyToggle", {
+    Title = "Auto buy selected item",
+    Default = false
+}):OnChanged(function(state)
+    if state then
+        task.spawn(function()
+            while Options.AutoBuyToggle.Value do
+                local selectedItem = Options.ItemToBuy.Value
+
+                if selectedItem == "All" then
+                    for _, item in ipairs(combinedList) do
+                        if item ~= "All" then
+                            local args = { item }
+                            game:GetService("ReplicatedStorage"):WaitForChild("GameEvents"):WaitForChild("BuyTravelingMerchantShopStock"):FireServer(unpack(args))
+                            task.wait(0.5)
+                        end
+                    end
+                elseif selectedItem and selectedItem ~= "" then
+                    local args = { selectedItem }
+                    game:GetService("ReplicatedStorage"):WaitForChild("GameEvents"):WaitForChild("BuyTravelingMerchantShopStock"):FireServer(unpack(args))
+                end
+
+                task.wait(1)
+            end
+        end)
+    end
+end)
+local Sections = { jjj = Tabs.Misc:AddSection("Auto Sell pets") }
+local Options = Fluent.Options
+local selectedPetName = nil
+local amountToSell = 1
+local minKG = 0
+local maxKG = math.huge
+
+local function getGroupedPetNames()
+    local backpack = game:GetService("Players").LocalPlayer:WaitForChild("Backpack")
+    local counts = {}
+
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") and tool:FindFirstChild("PetToolServer") then
+            local baseName = tool.Name:match("^(.-)%s%[") or tool.Name
+            counts[baseName] = (counts[baseName] or 0) + 1
+        end
+    end
+
+    local list = {}
+    for name, count in pairs(counts) do
+        if count > 1 then
+            table.insert(list, name .. " x" .. count)
+        else
+            table.insert(list, name)
+        end
+    end
+
+    table.sort(list)
+    return list
+end
+
+local dropdown = Tabs.Misc:AddDropdown("PetSellDropdown", {
+    Title = "Select Pet to sell",
+    Values = getGroupedPetNames(),
+    Multi = false,
+    Default = "",
+})
+dropdown:OnChanged(function(v)
+    selectedPetName = v:match("^(.-) x%d+") or v
+end)
+
+Tabs.Misc:AddButton({
+    Title = "Refresh Pet List",
+    Callback = function()
+        dropdown:SetValues(getGroupedPetNames())
+    end
+})
+
+Tabs.Misc:AddInput("PetSellAmount", {
+    Title = "Amount to sell",
+    Default = "1",
+    Placeholder = "Enter number",
+    Numeric = true,
+    Callback = function(value)
+        amountToSell = tonumber(value) or 1
+    end
+})
+
+Tabs.Misc:AddInput("MinKGInput", {
+    Title = "Minimum KG",
+    Default = "0",
+    Placeholder = "Min KG",
+    Numeric = true,
+    Callback = function(value)
+        minKG = tonumber(value) or 0
+    end
+})
+
+Tabs.Misc:AddInput("MaxKGInput", {
+    Title = "Maximum KG",
+    Default = "9999",
+    Placeholder = "Max KG",
+    Numeric = true,
+    Callback = function(value)
+        maxKG = tonumber(value) or math.huge
+    end
+})
+
+Tabs.Misc:AddToggle("AutoSellPet", {
+    Title = "Auto sell Selected pet",
+    Default = false,
+}):OnChanged(function(state)
+    if state then
+        task.spawn(function()
+            local player = game:GetService("Players").LocalPlayer
+            local replicatedStorage = game:GetService("ReplicatedStorage")
+            local remote = replicatedStorage:WaitForChild("GameEvents"):WaitForChild("SellPet_RE")
+
+            while Options.AutoSellPet.Value do
+                local backpack = player:WaitForChild("Backpack")
+                local equipped = 0
+
+                for _, tool in ipairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") and tool:FindFirstChild("PetToolServer") then
+                        local baseName = tool.Name:match("^(.-)%s%[") or tool.Name
+                        if selectedPetName and baseName == selectedPetName then
+                            local kg = tonumber(tool.Name:match("([%d%.]+)%s*KG"))
+                            if kg and kg >= minKG and kg <= maxKG then
+                                tool.Parent = player.Character
+                                task.wait(0.3)
+                                local equippedTool = player.Character:FindFirstChild(tool.Name)
+                                if equippedTool then
+                                    remote:FireServer(equippedTool)
+                                    equipped += 1
+                                end
+                                task.wait(0.3)
+                                if equipped >= amountToSell then break end
+                            end
+                        end
+                    end
+                end
+
+                if equipped >= amountToSell then
+                    Options.AutoSellPet:SetValue(false)
+                end
+
+                task.wait(0.5)
+            end
+        end)
+    end
+end)
+
+local Sections = { sex = Tabs.Misc:AddSection("Auto Feed") }
+
+
+-- Dropdown for method selection
+
+
+
+
+
+-- Auto Plant (only if ground under)
+-- سرویس‌ها و متغیرهای اصلی
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer   = Players.LocalPlayer
+local GameEvents    = ReplicatedStorage:WaitForChild("GameEvents")
+local PlantEvent    = GameEvents:WaitForChild("Plant_RE")
+
+local AutoPlant     = false
+
+-- تابع حلقه‌ی کاشت خودکار
+local function AutoPlantLoop()
+    -- اگر شخصیت هنوز لود نشده، صبر کن
+    if not LocalPlayer.Character then
+        LocalPlayer.CharacterAdded:Wait()
+    end
+
+    while AutoPlant do
+        local char = LocalPlayer.Character
+        local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+        local held = char and char:FindFirstChildOfClass("Tool")
+
+        if hrp and held then
+            -- ری‌کست به سمت زمین
+            local rayOrigin    = hrp.Position
+            local rayDirection = Vector3.new(0, -10, 0)
+            local params       = RaycastParams.new()
+            params.FilterDescendantsInstances = {char}
+            params.FilterType               = Enum.RaycastFilterType.Blacklist
+
+            local result = workspace:Raycast(rayOrigin, rayDirection, params)
+            if result and result.Instance then
+                -- پاک‌سازی نام بذر
+                local cleanName = held.Name
+                    :gsub(" Seed", "")
+                    :gsub("%s*%[.-%]", "")
+
+                -- ارسال رویداد کاشت به سرور
+                local args = {
+                    result.Position,  -- مکانی که ری‌کست خورد
+                    cleanName         -- نام بذر
+                }
+                pcall(function()
+                    PlantEvent:FireServer(unpack(args))
+                end)
+            end
+        end
+
+        task.wait(0.01)  -- یک تأخیر کوتاه بین هر تکرار
+    end
+end
+
+
+local Options = Fluent.Options
+local AutoFeedLoopRunning = false
+
+-- Dropdown for method selection
+local MethodDropdown = Tabs.Misc:AddDropdown("ChooseMethod", {
+    Title = "Choose Method",
+    Values = {"Closest", "All"},
+    Multi = false,
+    Default = 1,
+})
+MethodDropdown:SetValue("Closest")
+
+-- Toggle for auto feed
+local AutoFeedToggle = Tabs.Misc:AddToggle("AutoFeed", {
+    Title = "Auto Feed",
+    Default = false,
+})
+AutoFeedToggle:SetValue(false)
+
+-- Feeding logic
+local function feedPets()
+    local selected_method = Options.ChooseMethod.Value
+    local replicated_storage = game:GetService("ReplicatedStorage")
+    local pets = workspace:WaitForChild("PetsPhysical")
+    local local_player = game:GetService("Players").LocalPlayer
+
+    if selected_method == "Closest" then
+        local pet = (function()
+            local nearest, dist = nil, math.huge
+            for _, v in ipairs(pets:GetChildren()) do
+                if v:IsA("Part") and v:GetAttribute("OWNER") == local_player.Name then
+                    local d = (v.Position - local_player.Character.PrimaryPart.Position).Magnitude
+                    if d < dist then
+                        nearest, dist = v, d
+                    end
+                end
+            end
+            return nearest
+        end)()
+
+        if not pet then
+            Fluent:Notify({Title = "Pet Feeder", Content = "No Pets Found", Duration = 6})
+            return
+        end
+
+        replicated_storage:WaitForChild("GameEvents"):WaitForChild("ActivePetService"):FireServer("Feed", pet:GetAttribute("UUID"))
+        Fluent:Notify({Title = "Pet Feeder", Content = "Done Feeding Pet", Duration = 3})
+        return
+    end
+
+    if selected_method == "All" then
+        for _, v in ipairs(pets:GetChildren()) do
+            if v:IsA("Part") and v:GetAttribute("OWNER") == local_player.Name and v:GetAttribute("UUID") then
+                replicated_storage:WaitForChild("GameEvents"):WaitForChild("ActivePetService"):FireServer("Feed", v:GetAttribute("UUID"))
+            end
+        end
+        Fluent:Notify({Title = "Pet Feeder", Content = "Done Feeding Pets", Duration = 0})
+        return
+    end
+end
+
+-- Auto feed toggle logic
+Options.AutoFeed:OnChanged(function(state)
+    if state and not AutoFeedLoopRunning then
+        AutoFeedLoopRunning = true
+        task.spawn(function()
+            while Options.AutoFeed.Value do
+                pcall(feedPets)
+                task.wait(1)
+            end
+            AutoFeedLoopRunning = false
+        end)
+    end
+end)
+
+local Sections = { fs = Tabs.Misc:AddSection("Anhtoers") }
+
+-- تنظیم Toggle در UI
+Tabs.Misc:AddToggle("AutoPlant", {
+    Title       = "Auto Plant",
+    Description = "Plants held seed",
+    Default     = false
+}):OnChanged(function(state)
+    AutoPlant = state
+    if state then
+        task.spawn(AutoPlantLoop)
+    end
+end)
+
+local HideNotificationsToggle = Tabs.Misc:AddToggle("HideNotifications", {
+    Title = "Hide Notifications",
+    Description = "Toggles visibility of the in-game notification frame.",
+    Default = false,
+    Callback = function(value)
+        local player = game:GetService("Players").LocalPlayer
+        local frame = player:WaitForChild("PlayerGui"):WaitForChild("Top_Notification"):WaitForChild("Frame")
+        frame.Visible = not value
+    end
+})
+
+
+
+local hasFixLagBeenClicked = false
+local FixLagButton = Tabs.Misc:AddButton({
+    Title = "Fix Lag Cannot Be Turned Off",
+    Description = "Runs a lag reduction script once. Cannot be clicked again.",
+    Callback = function()
+        if not hasFixLagBeenClicked then
+            hasFixLagBeenClicked = true
+            pcall(function()
+                loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-Fix-lag-all-game-24449"))()
+                Fluent:Notify({
+                    Title = "Grow a garden - Summer Event",
+                    Content = "Lag fix script executed!",
+                    Duration = 5
+                })
+            end)
+        else
+            Fluent:Notify({
+                Title = "Grow a garden - Summer Event",
+                Content = "Lag fix script can only be run once!",
+                Duration = 5
+            })
+        end
+    end
+})
+
+
+-- Ability Tab Content
+local flyEnabled = false
+local flySpeed = 48
+local bodyVelocity, bodyGyro
+local flightConnection
+
+local function Fly(state)
+    flyEnabled = state
+    if flyEnabled then
+        local character = lp.Character
+        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+
+        bodyGyro = Instance.new("BodyGyro")
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyGyro.P = 9000
+        bodyGyro.MaxTorque = Vector3.new(999999, 999999, 999999)
+        bodyGyro.CFrame = character.HumanoidRootPart.CFrame
+        bodyGyro.Parent = character.HumanoidRootPart
+
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.MaxForce = Vector3.new(999999, 999999, 999999)
+        bodyVelocity.Parent = character.HumanoidRootPart
+
+        humanoid.PlatformStand = true
+
+        flightConnection = RunService.Heartbeat:Connect(function()
+            if not flyEnabled or not character:FindFirstChild("HumanoidRootPart") then
+                if flightConnection then flightConnection:Disconnect() end
+                return
+            end
+
+            local cam = workspace.CurrentCamera.CFrame
+            local moveVec = Vector3.new()
+
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveVec += cam.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveVec -= cam.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveVec -= cam.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveVec += cam.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                moveVec += Vector3.new(0, flySpeed, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                moveVec -= Vector3.new(0, flySpeed, 0)
+            end
+
+            if moveVec.Magnitude > 0 then
+                moveVec = moveVec.Unit * flySpeed
+            end
+
+            bodyVelocity.Velocity = moveVec
+            bodyGyro.CFrame = cam
+        end)
+    else
+        if bodyVelocity then bodyVelocity:Destroy() end
+        if bodyGyro then bodyGyro:Destroy() end
+
+        local character = lp.Character
+        if character then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.PlatformStand = false
+            end
+        end
+
+        if flightConnection then
+            flightConnection:Disconnect()
+            flightConnection = nil
+        end
+    end
+end
+
+Tabs.Ability:AddToggle("FlyToggle", {
+    Title = "Fly",
+    Default = false,
+    Callback = function(state)
+        Fly(state)
+    end
+})
+
+local noclipEnabled = false
+local noclipConn = nil
+local char = lp.Character
+local infJumpConn
+
+local function ToggleNoclip(state)
+    noclipEnabled = state
+    if noclipEnabled and not noclipConn then
+        noclipConn = RunService.Stepped:Connect(function()
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end)
+    elseif not noclipEnabled and noclipConn then
+        noclipConn:Disconnect()
+        noclipConn = nil
+    end
+end
+
+local infJumpEnabled = false
+
+local function ToggleInfJump(state)
+    infJumpEnabled = state
+end
+
+if not infJumpConn then
+    infJumpConn = UserInputService.JumpRequest:Connect(function()
+        if infJumpEnabled and char and char:FindFirstChildOfClass("Humanoid") then
+            char:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end)
+end
+
+local NoClipToggle = Tabs.Ability:AddToggle("NoClipToggle", {
+    Title = "NoClip",
+    Default = false
+})
+
+NoClipToggle:OnChanged(function(state)
+    ToggleNoclip(state)
+end)
+
+local InfJumpToggle = Tabs.Ability:AddToggle("InfJumpToggle", {
+    Title = "Infinite Jump",
+    Default = false
+})
+
+InfJumpToggle:OnChanged(function(state)
+    ToggleInfJump(state)
+end)
+
+
+-- Shops Tab Content
+local SeedShopToggle = Tabs.Shops:AddToggle("SeedShopToggle", {
+    Title = "Seed Shop",
+    Default = false
+})
+
+SeedShopToggle:OnChanged(function(state)
+    local shop = lp.PlayerGui:FindFirstChild("Seed_Shop")
+    if shop then
+        shop.Enabled = state
+    end
+end)
+
+local GearShopToggle = Tabs.Shops:AddToggle("GearShopToggle", {
+    Title = "Gear Shop",
+    Default = false
+})
+
+GearShopToggle:OnChanged(function(state)
+    local gear = lp.PlayerGui:FindFirstChild("Gear_Shop")
+    if gear then
+        gear.Enabled = state
+    end
+end)
+
+
+
+local QuestToggle = Tabs.Shops:AddToggle("QuestToggle", {
+    Title = "Daily Quest",
+    Default = false
+})
+
+QuestToggle:OnChanged(function(state)
+    local quest = lp.PlayerGui:FindFirstChild("DailyQuests_UI")
+    if quest then
+        quest.Enabled = state
+    end
+end)
+
+local EventShopToggle = Tabs.Shops:AddToggle("EventShopToggle", {
+    Title = "Open Event Shop",
+    Default = false
+})
+
+EventShopToggle:OnChanged(function(state)
+    local eventShop = lp.PlayerGui:FindFirstChild("EventShop_UI")
+    if eventShop then
+        eventShop.Enabled = state
+    end
+end)
+
+local OneClickRemoveToggle = Tabs.Shops:AddToggle("OneClickRemoveToggle", {
+    Title = "Destroy plant",
+    Default = false
+})
+
+local enabled = false
+
+local function OneClickRemove(state)
+    enabled = state
+    local confirmFrame = Players.LocalPlayer.PlayerGui:FindFirstChild("ShovelPrompt")
+    if confirmFrame and confirmFrame:FindFirstChild("ConfirmFrame") then
+        confirmFrame.ConfirmFrame.Visible = not state
+    end
+end
+
+OneClickRemoveToggle:OnChanged(function(state)
+    OneClickRemove(state)
+end)
+
+local Sections = { kk = Tabs.Events:AddSection("Zen Event") }
+
+local ZenRemoteEvent = game:GetService("ReplicatedStorage"):WaitForChild("GameEvents")
+
+-- Dropdown
+local ZenOptions = Tabs.Events:AddDropdown("ZenTypeDropdown", {
+    Title = "Select Zen System",
+    Values = { "ZenAuraShop", "ZenQuest" },
+    Multi = false,
+    Default = "ZenAuraShop"
+})
+
+-- Toggle
+local ZenToggle = Tabs.Events:AddToggle("AutoZenSubmitToggle", {
+    Title = "Auto Submit Plants",
+    Description = "Automatically submits all plants",
+    Default = false
+})
+
+-- Input Box for interval (seconds)
+Tabs.Events:AddInput("ZenSubmitIntervalInput", {
+    Title = "Auto Submit Zen (sec)",
+    Default = "5",
+    Placeholder = "put 0.01 for fastest",
+    Numeric = true
+})
+
+-- Loop Logic
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        if Options.AutoZenSubmitToggle.Value then
+            local selected = Options.ZenTypeDropdown.Value
+            local interval = tonumber(Options.ZenSubmitIntervalInput.Value) or 5
+
+            if selected == "ZenAuraShop" then
+                ZenRemoteEvent:WaitForChild("ZenAuraRemoteEvent"):FireServer("SubmitAllPlants")
+            elseif selected == "ZenQuest" then
+                ZenRemoteEvent:WaitForChild("ZenQuestRemoteEvent"):FireServer("SubmitAllPlants")
+            end
+
+            task.wait(interval)
+        end
+    end
+end)
+
+local Options = Fluent.Options
+
+-- State
+local autoCollectEnabled = false
+local autoCollectThread = nil
+local player = game.Players.LocalPlayer
+local backpack = player:WaitForChild("Backpack")
+
+-- UI
+Tabs.Events:AddDropdown("FruitTypeDropdown", {
+    Title = "Select Fruit Type",
+    Values = { "Both", "Tranquil", "Corrupt" },
+    Default = "Both"
+})
+
+Tabs.Events:AddInput("MaxTranquilInput", {
+    Title = "Max Tranquil",
+    Numeric = true
+})
+
+Tabs.Events:AddInput("MaxCorruptInput", {
+    Title = "Max Corrupt",
+    Numeric = true
+})
+
+Tabs.Events:AddToggle("AutoCollectFruitToggle", {
+    Title = "Auto Collect Selected Fruit",
+    Default = false,
+    Callback = function(state)
+        autoCollectEnabled = state
+
+        if autoCollectEnabled then
+            autoCollectThread = task.spawn(function()
+                local farm_model
+                for _, farm in ipairs(workspace.Farm:GetChildren()) do
+                    local data = farm:FindFirstChild("Important") and farm.Important:FindFirstChild("Data")
+                    if data and data:FindFirstChild("Owner") and data.Owner.Value == player.Name then
+                        farm_model = farm
+                        break
+                    end
+                end
+
+                while autoCollectEnabled and farm_model and task.wait(0.1) do
+                    local selectedType = Options.FruitTypeDropdown.Value
+                    local maxTranquil = tonumber(Options.MaxTranquilInput.Value or "0") or 0
+                    local maxCorrupt = tonumber(Options.MaxCorruptInput.Value or "0") or 0
+
+                    local tranquilCount, corruptCount = 0, 0
+                    for _, item in ipairs(backpack:GetChildren()) do
+                        if item:IsA("Tool") then
+                            local name = item.Name:lower()
+                            if name:find("tranquil") then
+                                tranquilCount += 1
+                            elseif name:find("corrupt") then
+                                corruptCount += 1
+                            end
+                        end
+                    end
+
+                    if (selectedType == "Tranquil" and tranquilCount >= maxTranquil)
+                    or (selectedType == "Corrupt" and corruptCount >= maxCorrupt)
+                    or (selectedType == "Both" and tranquilCount >= maxTranquil and corruptCount >= maxCorrupt) then
+                        continue
+                    end
+
+                    local plants_folder = farm_model.Important:FindFirstChild("Plants_Physical")
+                    if not plants_folder then continue end
+
+                    for _, plant in ipairs(plants_folder:GetChildren()) do
+                        local fruits = plant:FindFirstChild("Fruits")
+                        if fruits then
+                            for _, fruit in ipairs(fruits:GetChildren()) do
+                                local isTranquil = fruit:GetAttribute("Tranquil")
+                                local isCorrupt = fruit:GetAttribute("Corrupt")
+
+                                local shouldCollect =
+                                    (selectedType == "Tranquil" and isTranquil and tranquilCount < maxTranquil)
+                                    or (selectedType == "Corrupt" and isCorrupt and corruptCount < maxCorrupt)
+                                    or (selectedType == "Both" and (
+                                        (isTranquil and tranquilCount < maxTranquil)
+                                        or (isCorrupt and corruptCount < maxCorrupt)
+                                    ))
+
+                                if shouldCollect then
+                                    for _, part in ipairs(fruit:GetDescendants()) do
+                                        if part:IsA("BasePart") then
+                                            local prompt = part:FindFirstChildOfClass("ProximityPrompt")
+                                            if prompt and prompt.Enabled then
+                                                fireproximityprompt(prompt)
+                                                task.wait(0.02)
+                                                break
+                                            end
+                                        end
+                                    end
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        else
+            if autoCollectThread then
+                task.cancel(autoCollectThread)
+                autoCollectThread = nil
+            end
+        end
+    end
+})
+local Sections = { aa = Tabs.Events:AddSection("Zen Shop") }
+
+local Options = Fluent.Options
+
+local eventItems = {
+    "All",
+    "Zen Seed Pack",
+    "Zen Egg",
+    "Hoy Spring",
+    "Zen Sand",
+    "Tranquil Radar",
+    "Corrupt Radar",
+    "Zenflare",
+    "Zen Crate",
+    "Sakura Bush",
+    "Soft Sunshine",
+    "Koi",
+    "Zen Gnome Crate",
+    "Spiked Mango",
+    "Pet Shard Tranquil",
+    "Pet Shard Corrupted",
+    "Raiju"
+}
+
+    local MultiBuyDropdown = Tabs.Events:AddDropdown("MultiBuyDropdown", {
+        Title = "Buy Event Items",
+        Description = "Select multiple event items to auto buy.",
+        Values = eventItems,
+        Multi = true,
+        Default = {},
+    })
+
+
+    local BuyToggle = Tabs.Events:AddToggle("AutoBuyToggle", { Title = "Auto Buy Selected Items", Default = false })
+
+    BuyToggle:OnChanged(function(state)
+        if state then
+            task.spawn(function()
+                while Options.AutoBuyToggle.Value do
+                    local selected = Options.MultiBuyDropdown.Value
+                    local itemsToBuy = {}
+
+                    if selected["All"] then
+                        for _, item in ipairs(eventItems) do
+                            if item ~= "All" then
+                                table.insert(itemsToBuy, item)
+                            end
+                        end
+                    else
+                        for name, isSelected in pairs(selected) do
+                            if isSelected then
+                                table.insert(itemsToBuy, name)
+                            end
+                        end
+                    end
+
+                    for _, itemName in ipairs(itemsToBuy) do
+                        local args = { [1] = itemName }
+                        local success, err = pcall(function()
+                            game:GetService("ReplicatedStorage"):WaitForChild("GameEvents", 9e9):WaitForChild("BuyEventShopStock", 9e9):FireServer(unpack(args))
+                        end)
+                        if not success then
+                            warn("Failed to buy item:", itemName, err)
+                        end
+                        task.wait(0.25)
+                    end
+
+                    task.wait(5)
+                end
+            end)
+        end
+    end)
+
+
+Tabs.Events:AddButton({
+    Title = "Restock",
+    Description = "Click to restock the shop",
+    Callback = function()
+        local success, err = pcall(function()
+            game:GetService("ReplicatedStorage")
+                :WaitForChild("GameEvents")
+                :WaitForChild("BuyEventShopRestock")
+                :FireServer()
+        end)
+        if not success then
+            warn("Restock failed:", err)
+        end
+    end
+})
+
+local Sections = { kkl = Tabs.Events:AddSection("Auto Restock/Buy") }
+
+local Options = Fluent.Options
+
+local restockItems = {
+    "Zen Seed Pack",
+    "Zen Egg",
+    "Hoy Spring",
+    "Zen Sand",
+    "Tranquil Radar",
+    "Zenflare",
+    "Zen Crate",
+    "Soft Sunshine",
+    "Koi",
+    "Zen Gnome Crate",
+    "Spiked Mango",
+    "Pet Shard Tranquil"
+}
+
+-- Item selection
+Tabs.Events:AddDropdown("RestockDropdown", {
+    Title = "Select Item to Auto Buy/Restock",
+    Values = restockItems,
+    Multi = false,
+    Default = "Zen Seed Pack"
+})
+
+-- How many times to buy
+Tabs.Events:AddInput("RestockLimit", {
+    Title = "Buy Count Limit",
+    Default = "1",
+    Numeric = true,
+    Placeholder = "1"
+})
+
+-- NEW: Stop if Chi too low
+Tabs.Events:AddInput("ChiLimit", {
+    Title = "Stop If Chi Below",
+    Default = "20",
+    Numeric = true,
+    Placeholder = "Minimum Chi Coin"
+})
+
+-- Toggle
+Tabs.Events:AddToggle("AutoRestock", {
+    Title = "Auto Restock",
+    Description = "Restock and buy until limit or coin too low",
+    Default = false
+})
+
+-- Toggle logic
+Options.AutoRestock:OnChanged(function(state)
+    if state then
+        task.spawn(function()
+            local bought = 0
+            local maxBuy = tonumber(Options.RestockLimit.Value) or 1
+            local item = Options.RestockDropdown.Value
+            local chiLimit = tonumber(Options.ChiLimit.Value) or 0
+
+            while Options.AutoRestock.Value and bought < maxBuy do
+                -- Get coin label
+                local label
+                pcall(function()
+                    label = LocalPlayer:WaitForChild("PlayerGui")
+                        :WaitForChild("ChiCurrency_UI")
+                        :WaitForChild("Frame")
+                        :WaitForChild("TextLabel1")
+                end)
+
+                if not label or not tonumber(label.Text) then
+                    Fluent:Notify({
+                        Title = "Error",
+                        Content = "Chi coin UI not found or invalid.",
+                        Duration = 4
+                    })
+                    break
+                end
+
+                local before = tonumber(label.Text)
+                if before <= 0 then
+                    Fluent:Notify({
+                        Title = "Not Enough Chi",
+                        Content = "You don't have enough Chi coin to enable Auto Restock!",
+                        Duration = 4
+                    })
+                    break
+                end
+
+                -- ? Stop if Chi is under user-defined limit
+                if before <= chiLimit then
+                    Fluent:Notify({
+                        Title = "🔒 Chi Too Low",
+                        Content = "Chi is below your limit: " .. chiLimit,
+                        Duration = 4
+                    })
+                    break
+                end
+
+                -- ? RESTOCK
+                ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("BuyEventShopRestock"):FireServer()
+                task.wait(1)
+
+                --  BUY
+                ReplicatedStorage:WaitForChild("GameEvents"):WaitForChild("BuyEventShopStock"):FireServer(item)
+                task.wait(1)
+
+                -- check coin dropped
+                local after = tonumber(label.Text)
+                if after and after < before then
+                    bought += 1
+                    print("Bought", item, "| Total:", bought)
+                else
+                    print("Item not bought, retrying restock...")
+                end
+
+                task.wait(1)
+            end
+
+            -- Done
+            if bought >= maxBuy then
+                Fluent:Notify({
+                    Title = "done",
+                    Content = "Bought " .. bought .. "x " .. item,
+                    Duration = 4
+                })
+            end
+
+            Options.AutoRestock:SetValue(false)
+        end)
+    end
+end)
+
+
+local Sections = { yp = Tabs.Events:AddSection("Corrupted Zen") }
+getgenv().AutoSendType = getgenv().AutoSendType or false
+getgenv().SendFruitType = getgenv().SendFruitType or "Both"
+
+local Options = Fluent.Options
+local teleportedToKitsune = false
+local equippedTool = nil
+local equippedKeyword = nil
+
+Tabs.Events:AddToggle("AutoSubmitMonk", { Title = "Keep Giving Fruit to the Monk", Default = false })
+
+local Paragraph = Tabs.Events:AddParagraph({
+    Title = "What the Monk Wants",
+    Content = ""
+})
+
+Tabs.Events:AddToggle("AutoSendFruitType", {
+    Title = "Send Selected Fruit Type",
+    Default = getgenv().AutoSendType,
+}):OnChanged(function(v)
+    getgenv().AutoSendType = v
+    if not v then
+        teleportedToKitsune = false
+        equippedTool = nil
+        equippedKeyword = nil
+    end
+end)
+
+local TypeDropdown = Tabs.Events:AddDropdown("SendFruitType", {
+    Title = "Send Fruit Type",
+    Values = { "Both", "Tranquil", "Corrupt" },
+    Multi = false,
+    Default = getgenv().SendFruitType,
+})
+TypeDropdown:OnChanged(function(v)
+    getgenv().SendFruitType = v
+end)
+
+local function getRGB(part)
+    local color = part and part.Color
+    if color then
+        return math.floor(color.R * 255), math.floor(color.G * 255), math.floor(color.B * 255)
+    end
+    return nil
+end
+
+local function getTranquilStatus()
+    local ok, part = pcall(function()
+        return Workspace.Interaction.UpdateItems["Corrupted Zen"]:GetChildren()[10].Model:GetChildren()[5]["5"]
+    end)
+    if not ok or not part then return "none" end
+    local r, g, b = getRGB(part)
+    if (r == 21 and g == 64 and b == 72) or part.BrickColor.Name == "Earth blue" then return "active" end
+    if (r == 86 and g == 169 and b == 188) or part.BrickColor.Name == "Medium bluish green" then return "block" end
+    return "none"
+end
+
+local function getCorruptStatus()
+    local ok, part = pcall(function()
+        return Workspace.Interaction.UpdateItems["Corrupted Zen"]:GetChildren()[9].Model:GetChildren()[5]["5"]
+    end)
+    if not ok or not part then return "none" end
+    local r, g, b = getRGB(part)
+    if (r == 68 and g == 26 and b == 25) or part.BrickColor.Name == "Cocoa" then return "active" end
+    if (r == 170 and g == 65 and b == 60) or part.BrickColor.Name == "Dusty rose" then return "block" end
+    return "none"
+end
+
+local function getMonkRequestText()
+    local success, result = pcall(function()
+        local label = Workspace
+            :FindFirstChild("Interaction")
+            :FindFirstChild("UpdateItems")
+            :FindFirstChild("Corrupted Zen")
+            :FindFirstChild("Zen Platform")
+            :FindFirstChild("BillboardPart")
+            :FindFirstChildOfClass("BillboardGui")
+            :FindFirstChild("ShecklesAmountFrame")
+            :FindFirstChild("ShecklesAmountLabel")
+
+        return label and label.ContentText
+    end)
+    return success and result or nil
+end
+
+task.spawn(function()
+    while true do
+        local monkText = getMonkRequestText()
+        if monkText then
+            Paragraph:SetContent("The monk asks for:\n" .. monkText)
+        else
+            Paragraph:SetContent("The monk asks for:\nNothing")
+        end
+        task.wait(0.5)
+    end
+end)
+
+local function teleportToKitsune()
+    local part = Workspace.Interaction.UpdateItems["Corrupted Zen"].Platform.Kitsune.Part139
+    if part and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 3, 0)
+    end
+end
+
+local function hasToolEquipped()
+    local char = LocalPlayer.Character
+    if not char then return false end
+    for _, tool in ipairs(char:GetChildren()) do
+        if tool:IsA("Tool") and tool:FindFirstChild("Item_Seed") and string.find(tool.Name:lower(), "kg") then
+            return true
+        end
+    end
+    return false
+end
+
+local function equipToolByKeyword(keyword)
+    local backpack = LocalPlayer:WaitForChild("Backpack")
+    for _, tool in ipairs(backpack:GetChildren()) do
+        local name = tool.Name:lower()
+        if tool:IsA("Tool") and string.find(name, keyword) and not string.find(name, "crate") and not string.find(name, "spray") and tool:FindFirstChild("Item_Seed") and not string.find(name, "age") and string.find(name, "kg") then
+            tool.Parent = LocalPlayer.Character
+            equippedTool = tool
+            equippedKeyword = keyword
+            return true
+        end
+    end
+    return false
+end
+
+task.spawn(function()
+    while true do
+        if Options.AutoSendFruitType.Value then
+            if not teleportedToKitsune then
+                teleportToKitsune()
+                teleportedToKitsune = true
+                task.wait(0.1)
+            end
+
+            local tranquil = getTranquilStatus()
+            local corrupt = getCorruptStatus()
+            local fruitType = getgenv().SendFruitType:lower()
+            local remote = ReplicatedStorage.GameEvents:FindFirstChild("ZenQuestRemoteEvent")
+
+            if not hasToolEquipped() then
+                equippedTool = nil
+                equippedKeyword = nil
+                if fruitType == "both" then
+                    if tranquil == "active" and not equipToolByKeyword("tranquil") then
+                        if corrupt == "active" then
+                            equipToolByKeyword("corrupt")
+                        end
+                    elseif corrupt == "active" then
+                        equipToolByKeyword("corrupt")
+                    end
+                elseif fruitType == "tranquil" then
+                    if tranquil == "active" then
+                        equipToolByKeyword("tranquil")
+                    end
+                elseif fruitType == "corrupt" then
+                    if corrupt == "active" then
+                        equipToolByKeyword("corrupt")
+                    end
+                end
+            else
+                if remote then
+                    remote:FireServer("SubmitToFox")
+                end
+            end
+        else
+            teleportedToKitsune = false
+            equippedTool = nil
+            equippedKeyword = nil
+        end
+        task.wait(0.1)
+    end
+end)
+
+
+
+-- Guis Tab Content
+local EventGuiToggle = Tabs.Guis:AddToggle("EventGuiToggle", {
+    Title = "TP to Event GUI",
+    Description = "Shows/hides the TP to Event button.",
+    Default = false,
+    Callback = function(value)
+        local player = game:GetService("Players").LocalPlayer
+        local playerGui = player:WaitForChild("PlayerGui")
+        if value then
+            if not playerGui:FindFirstChild("EventGui") then
+                local screenGui = Instance.new("ScreenGui")
+                screenGui.Name = "EventGui"
+                screenGui.ResetOnSpawn = false
+                screenGui.Parent = playerGui
+
+                local tpButton = Instance.new("ImageButton")
+                tpButton.Name = "TPToEventButton"
+                tpButton.Size = UDim2.new(0, 160, 0, 30)
+                tpButton.Position = UDim2.new(0.5, -80, 0, -35)
+                tpButton.BackgroundColor3 = Color3.fromRGB(255, 230, 80)
+                tpButton.Image = "rbxassetid://9438453826"
+                tpButton.ScaleType = Enum.ScaleType.Slice
+                tpButton.SliceCenter = Rect.new(8, 8, 56, 56)
+                tpButton.SliceScale = 0.5
+                tpButton.AutoButtonColor = false
+                tpButton.Parent = screenGui
+
+                local corner = Instance.new("UICorner", tpButton)
+                corner.CornerRadius = UDim.new(0, 10)
+
+                local shadow = Instance.new("UIStroke", tpButton)
+                shadow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                shadow.Thickness = 4
+                shadow.Color = Color3.new(0, 0, 0)
+                shadow.Transparency = 0.75
+
+                local glow = Instance.new("UIStroke", tpButton)
+                glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                glow.Thickness = 1
+                glow.Color = Color3.fromRGB(255, 255, 150)
+                glow.Transparency = 0.3
+
+                local label = Instance.new("TextLabel")
+                label.Parent = tpButton
+                label.Size = UDim2.new(1, 0, 1, 0)
+                label.BackgroundTransparency = 1
+                label.Text = "TP to Event"
+                label.Font = Enum.Font.FredokaOne
+                label.TextScaled = true
+                label.TextColor3 = Color3.fromRGB(25, 25, 25)
+                label.TextStrokeTransparency = 0.3
+                label.TextStrokeColor3 = Color3.new(1, 1, 1)
+
+                local defaultColor = tpButton.BackgroundColor3
+                local hoverColor = Color3.fromRGB(255, 250, 130)
+
+                tpButton.MouseEnter:Connect(function()
+                    TweenService:Create(tpButton, TweenInfo.new(0.15), {
+                        BackgroundColor3 = hoverColor
+                    }):Play()
+                end)
+
+                tpButton.MouseLeave:Connect(function()
+                    TweenService:Create(tpButton, TweenInfo.new(0.15), {
+                        BackgroundColor3 = defaultColor
+                    }):Play()
+                end)
+
+                tpButton.MouseButton1Click:Connect(function()
+                    local char = player.Character or player.CharacterAdded:Wait()
+                    local hrp = char:WaitForChild("HumanoidRootPart")
+                    local destination = Vector3.new(-104.11, 0.9, -12.10)
+                    hrp.CFrame = CFrame.new(destination)
+                end)
+            end
+        else
+            local existingGui = playerGui:FindFirstChild("EventGui")
+            if existingGui then
+                existingGui:Destroy()
+            end
+        end
+    end
+})
+
+local GearButtonToggle = Tabs.Guis:AddToggle("GearButtonToggle", {
+    Title = "Gear Button",
+    Default = false,
+    Callback = function(value)
+        local player = game.Players.LocalPlayer
+        local playerGui = player:WaitForChild("PlayerGui")
+        task.wait(0.1) -- Small delay to ensure PlayerGui is ready
+
+        if value then
+            if not playerGui:FindFirstChild("GearGui") then
+                local gui = Instance.new("ScreenGui")
+                gui.Name = "GearGui"
+                gui.ResetOnSpawn = false
+                gui.IgnoreGuiInset = false
+                gui.Parent = playerGui
+
+                local button = Instance.new("TextButton")
+                button.Name = "GearButton"
+                button.Text = "GEAR"
+                button.TextSize = 17
+                button.Font = Enum.Font.GothamBold
+                button.Size = UDim2.new(0, 60, 0, 28)
+                button.Position = UDim2.new(0.26, 0, 0.024, 0)
+                button.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+                button.TextColor3 = Color3.new(1, 1, 1)
+                button.BorderSizePixel = 0
+                button.AutoButtonColor = true
+                button.Parent = gui
+
+                local uistroke = Instance.new("UIStroke")
+                uistroke.Thickness = 1
+                uistroke.Color = Color3.fromRGB(0, 120, 0)
+                uistroke.Parent = button
+
+                local targetPosition = Vector3.new(-285.41, 2.77, -13.98)
+                local lookDirection = Vector3.new(-285.41, 2.77, -20)
+
+                button.MouseButton1Click:Connect(function()
+                    local character = player.Character or player.CharacterAdded:Wait()
+                    local hrp = character:WaitForChild("HumanoidRootPart")
+                    hrp.CFrame = CFrame.lookAt(targetPosition, lookDirection)
+                end)
+            end
+        else
+            local existingGui = playerGui:FindFirstChild("GearGui")
+            if existingGui then
+                existingGui:Destroy()
+            end
+        end
+    end
+})
+
+-- Esp Tab Content
+Tabs.Esp:AddParagraph({
+        Title = "will by added soon",
+        Content = "Empty for now!"
+    })
+  
+  
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:SetFolder("Moondiety")
+SaveManager:SetFolder("Moondiety/Grow a Garden")
+InterfaceManager:BuildInterfaceSection(Tabs.settings)
+SaveManager:BuildConfigSection(Tabs.settings)
+
+Window:SelectTab(1)
+
+Fluent:Notify({
+    Title = "Moondiety Grow a garden",
+    Content = "Moondiety hub has been loaded successfully!.",
+    Duration = 5
+})
+
+SaveManager:LoadAutoloadConfig()
+
+
+
+local player = game:GetService("Players").LocalPlayer
+repeat wait() until player:FindFirstChild("PlayerGui")
+
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+
+-- Create ScreenGui for the button
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "DraggableClickableImageGui"
+screenGui.Parent = CoreGui
+
+local imageButton = Instance.new("ImageButton")
+imageButton.Size = UDim2.new(0, 50, 0, 50)
+imageButton.Position = UDim2.new(0, 10, 1, -160)
+imageButton.BackgroundTransparency = 1
+imageButton.Image = "rbxassetid://133495621202705"
+imageButton.Parent = screenGui
+imageButton.Active = true
+imageButton.Selectable = true
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(1, 0)
+uiCorner.Parent = imageButton
+
+local uiScale = Instance.new("UIScale")
+uiScale.Parent = imageButton
+
+local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+local hoverTween = TweenService:Create(uiScale, tweenInfo, { Scale = 1.1 })
+local leaveTween = TweenService:Create(uiScale, tweenInfo, { Scale = 1 })
+
+imageButton.MouseEnter:Connect(function()
+    hoverTween:Play()
+end)
+
+imageButton.MouseLeave:Connect(function()
+    leaveTween:Play()
+end)
+
+-- Drag and toggle logic with animated movement
+local dragging = false
+local dragStart, startPos, dragInput
+local clickThreshold = 10
+
+-- Smooth flicker effect function
+local function playFlickerOnce()
+    task.spawn(function()
+        imageButton.ImageTransparency = 0.2
+        task.wait(0.15)
+        imageButton.ImageTransparency = 0.6
+        task.wait(0.15)
+
+        local fadeTween = TweenService:Create(imageButton, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+            ImageTransparency = 0
+        })
+        fadeTween:Play()
+    end)
+end
+
+-- Function to check for target ScreenGui
+local function findTargetScreenGui()
+    return CoreGui:FindFirstChild("ScreenGui")
+end
+
+-- Function to toggle visibility of frames
+local function toggleFrames()
+    local targetScreenGui = findTargetScreenGui()
+    if targetScreenGui then
+        for _, obj in ipairs(targetScreenGui:GetChildren()) do
+            if obj:IsA("Frame") and obj.Name == "Frame" then
+                local size = obj.Size
+                if size.X.Scale == 0 and size.Y.Scale == 0 then
+                    if size.X.Offset >= 470 and size.Y.Offset >= 380 then
+                        obj.Visible = not obj.Visible
+                    end
+                end
+            end
+        end
+    end
+end
+
+imageButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = imageButton.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                local moved = (input.Position - dragStart).Magnitude
+                if moved < clickThreshold then
+                    playFlickerOnce()  -- Run flicker effect on click
+                    toggleFrames()     -- Toggle visibility of frames
+                end
+            end
+        end)
+    end
+end)
+
+imageButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input == dragInput then
+        local delta = input.Position - dragStart
+        local newPosition = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+
+        local moveTweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        local moveTween = TweenService:Create(imageButton, moveTweenInfo, { Position = newPosition })
+        moveTween:Play()
+    end
+end)
+
+-- Logic to check for ScreenGui every second and destroy if it disappears
+local function monitorScreenGui()
+    local wasFound = false
+    while true do
+        local targetScreenGui = findTargetScreenGui()
+        if targetScreenGui then
+            wasFound = true  -- Mark that ScreenGui was found at least once
+        elseif wasFound then
+            -- If ScreenGui was previously found but is now gone, destroy the button
+            screenGui:Destroy()
+            return
+        end
+        task.wait(1)  -- Check every second
+    end
+end
+
+-- Start monitoring the ScreenGui
+task.spawn(monitorScreenGui)
